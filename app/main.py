@@ -353,7 +353,16 @@ THEME_DEFAULTS = {
 @app.get("/api/settings")
 async def get_settings():
     stored = await db.get_settings()
-    return {**THEME_DEFAULTS, **stored}
+    result = {**THEME_DEFAULTS, **stored}
+    # Auto-detect logo file on disk even if DB setting is missing
+    if not result.get("logo_url"):
+        img_dir = BASE_DIR / "static" / "img"
+        for ext in (".png", ".jpg", ".svg", ".webp"):
+            if (img_dir / f"logo{ext}").exists():
+                result["logo_url"] = f"/static/img/logo{ext}"
+                await db.set_setting("logo_url", result["logo_url"])
+                break
+    return result
 
 
 @app.put("/api/settings")
