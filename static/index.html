@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mognadsdialog – MSB/MCF</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <header class="app-header">
+        <div style="display:flex;align-items:center;gap:0.8rem">
+            <img id="header-logo" src="" alt="" style="display:none;height:36px;border-radius:4px">
+            <h1>Mognadsdialog</h1>
+        </div>
+        <div style="display:flex;align-items:center;gap:1rem">
+            <span class="breadcrumb">Systemstöd för mognadsdialog</span>
+            <div id="header-user" style="display:flex;align-items:center;gap:0.5rem"></div>
+            <button id="btn-settings" class="btn-icon" title="Inställningar" style="display:none;background:none;border:none;color:white;cursor:pointer;font-size:1.3rem;padding:0.2rem;opacity:0.8">&#9881;</button>
+        </div>
+    </header>
+    <main id="app">
+        <div class="container">
+            <div class="empty-state">Laddar...</div>
+        </div>
+    </main>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
