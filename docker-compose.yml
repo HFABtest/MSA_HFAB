@@ -1,0 +1,15 @@
+services:
+  mognadsdialog:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      - db-data:/app/data
+      - uploads:/app/static/img
+    environment:
+      - DB_PATH=/app/data/mognadsdialog.db
+    restart: unless-stopped
+
+volumes:
+  db-data:
+  uploads:

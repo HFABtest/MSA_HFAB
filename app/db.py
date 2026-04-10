@@ -14,9 +14,11 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
 
+import os
+
 from .reference_data import PERSPECTIVE_KEYS, DIMENSION_KEYS
 
-DB_PATH = Path(__file__).parent.parent / "mognadsdialog.db"
+DB_PATH = Path(os.environ.get("DB_PATH", str(Path(__file__).parent.parent / "mognadsdialog.db")))
 
 
 async def get_db() -> aiosqlite.Connection:
