@@ -346,15 +346,96 @@ async def export_assessment_pdf(assessment_id: int, request: Request):
 
 @app.get("/api/survey/reference")
 async def get_survey_reference():
-    from .survey_data import SURVEY_SECTIONS, SURVEY_LEVELS, UNIT_PROFILES, SURVEY_QUESTIONS, UNIT_TO_PROFILE, HFAB_UNITS
+    from .survey_data import SURVEY_SECTIONS, SURVEY_LEVELS
+    units = await db.get_survey_units()
+    profiles = await db.get_survey_profiles()
+    questions = await db.get_survey_questions_db()
+    active_questions = [q for q in questions if q["active"]]
     return {
         "sections": SURVEY_SECTIONS,
         "levels": SURVEY_LEVELS,
-        "profiles": {k: {"name": v["name"], "description": v["description"], "example_units": v["example_units"]} for k, v in UNIT_PROFILES.items()},
-        "units": UNIT_TO_PROFILE,
-        "unit_list": HFAB_UNITS,
-        "total_questions": len(SURVEY_QUESTIONS),
+        "profiles": {p["key"]: {"name": p["name"], "description": p["description"]} for p in profiles},
+        "units": {u["name"]: u["profile_key"] for u in units},
+        "unit_list": [u["name"] for u in units],
+        "total_questions": len(active_questions),
     }
+
+
+# ── Survey Config Admin ──────────────────────────────────────────────
+
+@app.get("/api/survey/units")
+async def list_survey_units(request: Request):
+    require_auth(request)
+    return await db.get_survey_units()
+
+
+@app.post("/api/survey/units", status_code=201)
+async def create_survey_unit(request: Request):
+    require_admin(request)
+    data = await request.json()
+    try:
+        return await db.create_survey_unit(data["name"], data["profile_key"])
+    except Exception:
+        raise HTTPException(status_code=400, detail="Enhetsnamnet finns redan")
+
+
+@app.put("/api/survey/units/{unit_id}")
+async def update_survey_unit(unit_id: int, request: Request):
+    # All authenticated users can rename units
+    require_auth(request)
+    data = await request.json()
+    # Only admin can change profile_key
+    session = get_current_user(request)
+    if "profile_key" in data and session["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Bara admin kan ändra frågegrupp")
+    units = await db.get_survey_units()
+    unit = next((u for u in units if u["id"] == unit_id), None)
+    if not unit:
+        raise HTTPException(status_code=404, detail="Enhet hittades inte")
+    await db.update_survey_unit(unit_id, data.get("name", unit["name"]), data.get("profile_key", unit["profile_key"]))
+    return {"ok": True}
+
+
+@app.delete("/api/survey/units/{unit_id}")
+async def delete_survey_unit(unit_id: int, request: Request):
+    require_admin(request)
+    await db.delete_survey_unit(unit_id)
+    return {"ok": True}
+
+
+@app.get("/api/survey/profiles")
+async def list_survey_profiles(request: Request):
+    require_auth(request)
+    return await db.get_survey_profiles()
+
+
+@app.get("/api/survey/questions")
+async def list_survey_questions(request: Request):
+    require_admin(request)
+    return await db.get_survey_questions_db()
+
+
+@app.put("/api/survey/questions/{qid}")
+async def update_survey_question(qid: str, request: Request):
+    require_admin(request)
+    data = await request.json()
+    await db.update_survey_question(
+        qid, data["text"], data.get("help_text", ""), data.get("section", ""),
+        data.get("standard", True), data.get("profile_tags", []), data.get("active", True),
+    )
+    return {"ok": True}
+
+
+@app.post("/api/survey/questions", status_code=201)
+async def create_survey_question_endpoint(request: Request):
+    require_admin(request)
+    data = await request.json()
+    qid = data.get("id", f"custom_{int(__import__('time').time())}")
+    await db.create_survey_question(
+        qid, data["section"], data["text"], data.get("help_text", ""),
+        data.get("standard", True), data.get("profile_tags", []),
+    )
+    return {"ok": True, "id": qid}
 
 
 @app.post("/api/surveys", status_code=201)
@@ -382,9 +463,9 @@ async def get_survey(survey_id: int, request: Request):
     if survey is None:
         raise HTTPException(status_code=404, detail="Survey not found")
     answers = await db.get_survey_answers(survey_id)
-    # Enrich answers with question data
-    from .survey_data import SURVEY_QUESTIONS
-    q_map = {q["id"]: q for q in SURVEY_QUESTIONS}
+    # Enrich answers with question data from DB
+    db_questions = await db.get_survey_questions_db()
+    q_map = {q["id"]: q for q in db_questions}
     enriched = []
     for a in answers:
         q = q_map.get(a["question_id"], {})

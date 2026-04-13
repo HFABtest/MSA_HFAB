@@ -1271,6 +1271,192 @@ routes.surveyResults = async ({ surveyId }) => {
 
 // ── VIEW: Settings ─────────────────────────────────────────────────
 
+// ── VIEW: Manage Units (admin) ──────────────────────────────────────
+
+routes.manageUnits = async () => {
+    const app = document.getElementById('app');
+    if (!isAdmin()) { navigate('home'); return; }
+    setBreadcrumb([{ label: 'Hem', view: 'home' }, { label: 'Inst\u00e4llningar', view: 'settings' }]);
+
+    const units = await api('/survey/units');
+    const profiles = await api('/survey/profiles');
+
+    app.innerHTML = `
+    <div class="container" style="max-width:900px">
+        <div class="card">
+            <div class="flex-between mb-2">
+                <h2>Enheter & fr\u00e5gegrupper</h2>
+                <button class="btn btn-primary btn-sm" id="btn-add-unit">+ Ny enhet</button>
+            </div>
+            <p style="color:var(--text-light);font-size:0.9rem;margin-bottom:1rem">Varje enhet kopplas till en fr\u00e5gegrupp som styr vilka fr\u00e5gor som visas vid m\u00e4tning.</p>
+            <table style="width:100%;border-collapse:collapse">
+                <thead><tr style="border-bottom:2px solid var(--border)">
+                    <th style="text-align:left;padding:0.5rem">Enhet</th>
+                    <th style="text-align:left;padding:0.5rem">Fr\u00e5gegrupp</th>
+                    <th style="text-align:right;padding:0.5rem"></th>
+                </tr></thead>
+                <tbody>
+                ${units.map(u => `
+                    <tr style="border-bottom:1px solid var(--border)" data-uid="${u.id}">
+                        <td style="padding:0.5rem"><input class="unit-name" value="${esc(u.name)}" style="border:1px solid var(--border);border-radius:4px;padding:0.3rem 0.5rem;width:200px" /></td>
+                        <td style="padding:0.5rem">
+                            <select class="unit-profile" style="border:1px solid var(--border);border-radius:4px;padding:0.3rem">
+                                ${profiles.map(p => `<option value="${p.key}" ${p.key === u.profile_key ? 'selected' : ''}>${p.name}</option>`).join('')}
+                            </select>
+                        </td>
+                        <td style="padding:0.5rem;text-align:right">
+                            <button class="btn btn-sm btn-accent btn-save-unit" data-id="${u.id}">Spara</button>
+                            <button class="btn btn-sm btn-outline btn-del-unit" data-id="${u.id}" style="color:var(--danger);border-color:var(--danger);margin-left:0.3rem">Ta bort</button>
+                        </td>
+                    </tr>
+                `).join('')}
+                </tbody>
+            </table>
+        </div>
+    </div>`;
+
+    app.querySelectorAll('.btn-save-unit').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const row = btn.closest('tr');
+            const id = +btn.dataset.id;
+            const name = row.querySelector('.unit-name').value.trim();
+            const profile_key = row.querySelector('.unit-profile').value;
+            if (!name) return alert('Ange ett namn');
+            await api(`/survey/units/${id}`, { method: 'PUT', body: JSON.stringify({ name, profile_key }) });
+            btn.textContent = 'Sparat!'; setTimeout(() => btn.textContent = 'Spara', 1500);
+        });
+    });
+
+    app.querySelectorAll('.btn-del-unit').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            if (!confirm('Ta bort enheten?')) return;
+            await api(`/survey/units/${btn.dataset.id}`, { method: 'DELETE' });
+            navigate('manageUnits');
+        });
+    });
+
+    app.querySelector('#btn-add-unit')?.addEventListener('click', () => {
+        const m = createModal(`
+            <h2>Ny enhet</h2>
+            <div class="form-group"><label>Namn</label><input id="nu-name" type="text" /></div>
+            <div class="form-group"><label>Fr\u00e5gegrupp</label>
+                <select id="nu-profile">${profiles.map(p => `<option value="${p.key}">${p.name}</option>`).join('')}</select>
+            </div>
+            <div style="display:flex;gap:0.5rem;justify-content:flex-end">
+                <button class="btn btn-outline" id="modal-cancel">Avbryt</button>
+                <button class="btn btn-primary" id="modal-save">Skapa</button>
+            </div>
+        `);
+        m.querySelector('#modal-cancel').addEventListener('click', () => m.remove());
+        m.querySelector('#modal-save').addEventListener('click', async () => {
+            const name = m.querySelector('#nu-name').value.trim();
+            if (!name) return alert('Ange namn');
+            await api('/survey/units', { method: 'POST', body: JSON.stringify({ name, profile_key: m.querySelector('#nu-profile').value }) });
+            m.remove();
+            navigate('manageUnits');
+        });
+    });
+};
+
+// ── VIEW: Manage Questions (admin) ─────────────────────────────────
+
+routes.manageQuestions = async () => {
+    const app = document.getElementById('app');
+    if (!isAdmin()) { navigate('home'); return; }
+    setBreadcrumb([{ label: 'Hem', view: 'home' }, { label: 'Inst\u00e4llningar', view: 'settings' }]);
+
+    const questions = await api('/survey/questions');
+    const ref = await getSurveyRef();
+    const sectionNames = {};
+    ref.sections.forEach(s => { sectionNames[s.key] = s.name; });
+
+    app.innerHTML = `
+    <div class="container-wide">
+        <div class="card">
+            <div class="flex-between mb-2">
+                <h2>Fr\u00e5gor f\u00f6r mognadsmätning</h2>
+                <button class="btn btn-primary btn-sm" id="btn-add-q">+ Ny fr\u00e5ga</button>
+            </div>
+            <p style="color:var(--text-light);font-size:0.9rem;margin-bottom:1rem">${questions.length} fr\u00e5gor totalt. Klicka p\u00e5 en fr\u00e5ga f\u00f6r att redigera.</p>
+            <table style="width:100%;border-collapse:collapse">
+                <thead><tr style="border-bottom:2px solid var(--border)">
+                    <th style="text-align:left;padding:0.5rem;width:50px">ID</th>
+                    <th style="text-align:left;padding:0.5rem">Sektion</th>
+                    <th style="text-align:left;padding:0.5rem">Fr\u00e5ga</th>
+                    <th style="text-align:center;padding:0.5rem;width:60px">Standard</th>
+                    <th style="text-align:center;padding:0.5rem;width:60px">Aktiv</th>
+                    <th style="text-align:right;padding:0.5rem;width:80px"></th>
+                </tr></thead>
+                <tbody>
+                ${questions.map(q => `
+                    <tr style="border-bottom:1px solid var(--border);${!q.active ? 'opacity:0.5' : ''}">
+                        <td style="padding:0.5rem;font-size:0.8rem;color:var(--text-light);font-family:monospace">${esc(q.id)}</td>
+                        <td style="padding:0.5rem;font-size:0.85rem">${sectionNames[q.section] || q.section}</td>
+                        <td style="padding:0.5rem;font-size:0.9rem">${esc(q.text)}</td>
+                        <td style="padding:0.5rem;text-align:center">${q.standard ? '\u2713' : ''}</td>
+                        <td style="padding:0.5rem;text-align:center">${q.active ? '\u2713' : '\u2717'}</td>
+                        <td style="padding:0.5rem;text-align:right">
+                            <button class="btn btn-outline btn-sm btn-edit-q" data-id="${esc(q.id)}">\u00c4ndra</button>
+                        </td>
+                    </tr>
+                `).join('')}
+                </tbody>
+            </table>
+        </div>
+    </div>`;
+
+    app.querySelectorAll('.btn-edit-q').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const q = questions.find(x => x.id === btn.dataset.id);
+            if (q) showEditQuestionDialog(q, ref.sections);
+        });
+    });
+
+    app.querySelector('#btn-add-q')?.addEventListener('click', () => showEditQuestionDialog(null, ref.sections));
+};
+
+function showEditQuestionDialog(q, sections) {
+    const isNew = !q;
+    const m = createModal(`
+        <h2>${isNew ? 'Ny fr\u00e5ga' : '\u00c4ndra fr\u00e5ga'}</h2>
+        ${isNew ? `<div class="form-group"><label>ID</label><input id="eq-id" type="text" placeholder="T.ex. custom_phishing" /></div>` : ''}
+        <div class="form-group"><label>Sektion</label>
+            <select id="eq-section">${sections.map(s => `<option value="${s.key}" ${q?.section === s.key ? 'selected' : ''}>${s.name}</option>`).join('')}</select>
+        </div>
+        <div class="form-group"><label>Fr\u00e5ga</label><textarea id="eq-text" rows="2">${q ? esc(q.text) : ''}</textarea></div>
+        <div class="form-group"><label>Hj\u00e4lptext</label><textarea id="eq-help" rows="2">${q ? esc(q.help_text) : ''}</textarea></div>
+        <div class="form-group"><label><input type="checkbox" id="eq-standard" ${!q || q.standard ? 'checked' : ''} /> Standardfr\u00e5ga (visas f\u00f6r alla)</label></div>
+        <div class="form-group"><label>Profiltaggar (kommaseparerade, om ej standard)</label><input id="eq-tags" type="text" value="${q ? q.profile_tags.join(',') : ''}" placeholder="T.ex. handles_personal_data,manages_it_systems" /></div>
+        <div class="form-group"><label><input type="checkbox" id="eq-active" ${!q || q.active ? 'checked' : ''} /> Aktiv</label></div>
+        <div style="display:flex;gap:0.5rem;justify-content:flex-end">
+            <button class="btn btn-outline" id="modal-cancel">Avbryt</button>
+            <button class="btn btn-primary" id="modal-save">${isNew ? 'Skapa' : 'Spara'}</button>
+        </div>
+    `);
+    m.querySelector('#modal-cancel').addEventListener('click', () => m.remove());
+    m.querySelector('#modal-save').addEventListener('click', async () => {
+        const text = m.querySelector('#eq-text').value.trim();
+        if (!text) return alert('Ange fr\u00e5getext');
+        const tags = m.querySelector('#eq-tags').value.split(',').map(t => t.trim()).filter(Boolean);
+        const body = {
+            section: m.querySelector('#eq-section').value,
+            text, help_text: m.querySelector('#eq-help').value.trim(),
+            standard: m.querySelector('#eq-standard').checked,
+            profile_tags: tags,
+            active: m.querySelector('#eq-active').checked,
+        };
+        if (isNew) {
+            body.id = m.querySelector('#eq-id').value.trim();
+            if (!body.id) return alert('Ange ett ID');
+            await api('/survey/questions', { method: 'POST', body: JSON.stringify(body) });
+        } else {
+            await api(`/survey/questions/${q.id}`, { method: 'PUT', body: JSON.stringify(body) });
+        }
+        m.remove();
+        navigate('manageQuestions');
+    });
+}
+
 routes.settings = async () => {
     if (!isAdmin()) { navigate('home'); return; }
     const app = document.getElementById('app');
@@ -1291,7 +1477,11 @@ routes.settings = async () => {
         <div class="card">
             <div class="flex-between mb-2">
                 <h2 style="margin:0">Inst\u00e4llningar</h2>
-                <button class="btn btn-outline btn-sm" id="btn-manage-users">Hantera anv\u00e4ndare</button>
+                <div class="btn-group">
+                    <button class="btn btn-outline btn-sm" id="btn-manage-users">Anv\u00e4ndare</button>
+                    <button class="btn btn-outline btn-sm" id="btn-manage-units">Enheter & fr\u00e5gegrupper</button>
+                    <button class="btn btn-outline btn-sm" id="btn-manage-questions">Fr\u00e5gor</button>
+                </div>
             </div>
 
             <div class="form-group">
@@ -1332,6 +1522,8 @@ routes.settings = async () => {
 
     // Live preview: sync color picker <-> hex input
     app.querySelector('#btn-manage-users')?.addEventListener('click', () => navigate('users'));
+    app.querySelector('#btn-manage-units')?.addEventListener('click', () => navigate('manageUnits'));
+    app.querySelector('#btn-manage-questions')?.addEventListener('click', () => navigate('manageQuestions'));
 
     app.querySelectorAll('.color-input').forEach(ci => {
         ci.addEventListener('input', () => {

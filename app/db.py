@@ -76,6 +76,31 @@ async def init_db():
                 value TEXT NOT NULL DEFAULT ''
             );
 
+            -- Editable survey config
+            CREATE TABLE IF NOT EXISTS survey_profiles_db (
+                key TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT ''
+            );
+
+            CREATE TABLE IF NOT EXISTS survey_units_db (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                profile_key TEXT NOT NULL DEFAULT '',
+                sort_order INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS survey_questions_db (
+                id TEXT PRIMARY KEY,
+                section TEXT NOT NULL,
+                text TEXT NOT NULL,
+                help_text TEXT NOT NULL DEFAULT '',
+                standard INTEGER NOT NULL DEFAULT 1,
+                profile_tags TEXT NOT NULL DEFAULT '',
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                active INTEGER NOT NULL DEFAULT 1
+            );
+
             -- Survey (unit-level maturity measurement)
             CREATE TABLE IF NOT EXISTS surveys (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -115,6 +140,32 @@ async def init_db():
                 "INSERT INTO users (username, password_hash, display_name, role, created_at) VALUES (?, ?, ?, ?, ?)",
                 ("admin", pw_hash, "Administratör", "admin", _now()),
             )
+
+        # Seed survey config from hardcoded data if empty
+        cursor = await db.execute("SELECT COUNT(*) as c FROM survey_units_db")
+        row = await cursor.fetchone()
+        if row["c"] == 0:
+            from .survey_data import UNIT_PROFILES, UNIT_TO_PROFILE, SURVEY_QUESTIONS
+            # Profiles
+            for key, prof in UNIT_PROFILES.items():
+                await db.execute(
+                    "INSERT OR IGNORE INTO survey_profiles_db (key, name, description) VALUES (?, ?, ?)",
+                    (key, prof["name"], prof["description"]),
+                )
+            # Units
+            for i, (unit_name, profile_key) in enumerate(UNIT_TO_PROFILE.items()):
+                await db.execute(
+                    "INSERT OR IGNORE INTO survey_units_db (name, profile_key, sort_order) VALUES (?, ?, ?)",
+                    (unit_name, profile_key, i),
+                )
+            # Questions
+            for i, q in enumerate(SURVEY_QUESTIONS):
+                tags = ",".join(q["profile_tags"]) if q["profile_tags"] else ""
+                await db.execute(
+                    "INSERT OR IGNORE INTO survey_questions_db (id, section, text, help_text, standard, profile_tags, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (q["id"], q["section"], q["text"], q["help_text"], 1 if q["standard"] else 0, tags, i),
+                )
+
         await db.commit()
     finally:
         await db.close()
@@ -382,9 +433,23 @@ async def create_survey(organization_id: int, title: str, profile_key: str, resp
             (organization_id, title, profile_key, respondent_name, now),
         )
         survey_id = cursor.lastrowid
-        # Pre-create answers for applicable questions
-        from .survey_data import get_questions_for_profile
-        questions = get_questions_for_profile(profile_key)
+        # Pre-create answers from DB questions matching profile
+        cursor2 = await db.execute("SELECT * FROM survey_questions_db WHERE active = 1 ORDER BY sort_order")
+        all_qs = await cursor2.fetchall()
+        # Get profile tags
+        cursor3 = await db.execute("SELECT key FROM survey_profiles_db")
+        profiles_exist = {r["key"] for r in await cursor3.fetchall()}
+        # Get the tags for the unit's profile from survey_data (fallback)
+        from .survey_data import UNIT_PROFILES
+        profile_tags = set(UNIT_PROFILES.get(profile_key, {}).get("tags", []))
+        questions = []
+        for q in all_qs:
+            if q["standard"]:
+                questions.append(q)
+            elif q["profile_tags"]:
+                q_tags = set(q["profile_tags"].split(","))
+                if q_tags & profile_tags:
+                    questions.append(q)
         for q in questions:
             await db.execute(
                 "INSERT INTO survey_answers (survey_id, question_id, comment) VALUES (?, ?, '')",
@@ -488,6 +553,101 @@ async def set_setting(key: str, value: str) -> None:
             (key, value, value),
         )
         await db.commit()
+    finally:
+        await db.close()
+
+
+# ── Survey Config (editable units, profiles, questions) ─────────────
+
+async def get_survey_units() -> list[dict]:
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM survey_units_db ORDER BY sort_order, name")
+        return [{"id": r["id"], "name": r["name"], "profile_key": r["profile_key"], "sort_order": r["sort_order"]} for r in await cursor.fetchall()]
+    finally:
+        await db.close()
+
+
+async def create_survey_unit(name: str, profile_key: str) -> dict:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "INSERT INTO survey_units_db (name, profile_key, sort_order) VALUES (?, ?, (SELECT COALESCE(MAX(sort_order),0)+1 FROM survey_units_db))",
+            (name, profile_key),
+        )
+        await db.commit()
+        return {"id": cursor.lastrowid, "name": name, "profile_key": profile_key}
+    finally:
+        await db.close()
+
+
+async def update_survey_unit(unit_id: int, name: str, profile_key: str) -> bool:
+    db = await get_db()
+    try:
+        await db.execute("UPDATE survey_units_db SET name = ?, profile_key = ? WHERE id = ?", (name, profile_key, unit_id))
+        await db.commit()
+        return True
+    finally:
+        await db.close()
+
+
+async def delete_survey_unit(unit_id: int) -> bool:
+    db = await get_db()
+    try:
+        await db.execute("DELETE FROM survey_units_db WHERE id = ?", (unit_id,))
+        await db.commit()
+        return True
+    finally:
+        await db.close()
+
+
+async def get_survey_profiles() -> list[dict]:
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM survey_profiles_db ORDER BY key")
+        return [{"key": r["key"], "name": r["name"], "description": r["description"]} for r in await cursor.fetchall()]
+    finally:
+        await db.close()
+
+
+async def get_survey_questions_db() -> list[dict]:
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM survey_questions_db ORDER BY sort_order, id")
+        return [{
+            "id": r["id"], "section": r["section"], "text": r["text"],
+            "help_text": r["help_text"], "standard": bool(r["standard"]),
+            "profile_tags": r["profile_tags"].split(",") if r["profile_tags"] else [],
+            "sort_order": r["sort_order"], "active": bool(r["active"]),
+        } for r in await cursor.fetchall()]
+    finally:
+        await db.close()
+
+
+async def update_survey_question(qid: str, text: str, help_text: str, section: str, standard: bool, profile_tags: list[str], active: bool) -> bool:
+    db = await get_db()
+    try:
+        tags = ",".join(profile_tags)
+        await db.execute(
+            "UPDATE survey_questions_db SET text = ?, help_text = ?, section = ?, standard = ?, profile_tags = ?, active = ? WHERE id = ?",
+            (text, help_text, section, 1 if standard else 0, tags, 1 if active else 0, qid),
+        )
+        await db.commit()
+        return True
+    finally:
+        await db.close()
+
+
+async def create_survey_question(qid: str, section: str, text: str, help_text: str, standard: bool, profile_tags: list[str]) -> bool:
+    db = await get_db()
+    try:
+        tags = ",".join(profile_tags)
+        await db.execute(
+            "INSERT INTO survey_questions_db (id, section, text, help_text, standard, profile_tags, sort_order, active) VALUES (?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order),0)+1 FROM survey_questions_db), 1)",
+            (qid, section, text, help_text, 1 if standard else 0, tags),
+        )
+        await db.commit()
+        return True
     finally:
         await db.close()
 
