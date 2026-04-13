@@ -284,17 +284,126 @@ function showUserDialog(existing = null) {
 routes.home = async () => {
     const app = document.getElementById('app');
     setBreadcrumb([]);
+    app.innerHTML = `
+    <div class="container" style="max-width:800px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-top:1rem">
+            <div class="card" id="card-dialogue" style="cursor:pointer;text-align:center;padding:2rem;transition:transform 0.15s,box-shadow 0.15s">
+                <div style="font-size:2.5rem;margin-bottom:0.5rem">&#128200;</div>
+                <h2 style="margin-bottom:0.5rem">Mognadsdialog</h2>
+                <p style="color:var(--text-light);font-size:0.9rem">Ledningens \u00e5rliga dialogbaserade mognadsbedömning enligt MSB/MCF-modellen.</p>
+                <div style="margin-top:1rem;font-size:0.85rem;color:var(--primary);font-weight:600">Verksamhets\u00f6vergripande \u2192</div>
+            </div>
+            <div class="card" id="card-survey" style="cursor:pointer;text-align:center;padding:2rem;transition:transform 0.15s,box-shadow 0.15s">
+                <div style="font-size:2.5rem;margin-bottom:0.5rem">&#128203;</div>
+                <h2 style="margin-bottom:0.5rem">Mognadsmätning</h2>
+                <p style="color:var(--text-light);font-size:0.9rem">Enhetsbaserad mätning av informationssäkerhet, GDPR och NIS2-compliance.</p>
+                <div style="margin-top:1rem;font-size:0.85rem;color:var(--primary);font-weight:600">Per enhet \u2192</div>
+            </div>
+        </div>
+    </div>`;
+    app.querySelector('#card-dialogue')?.addEventListener('click', () => navigate('dialogueHome'));
+    app.querySelector('#card-survey')?.addEventListener('click', () => navigate('surveyHome'));
+    // Hover effect
+    app.querySelectorAll('.card[id^="card-"]').forEach(c => {
+        c.addEventListener('mouseenter', () => { c.style.transform = 'translateY(-4px)'; c.style.boxShadow = '0 6px 20px rgba(0,0,0,0.12)'; });
+        c.addEventListener('mouseleave', () => { c.style.transform = ''; c.style.boxShadow = ''; });
+    });
+};
+
+// ── VIEW: Dialogue Home (year-based) ───────────────────────────────
+
+routes.dialogueHome = async () => {
+    const app = document.getElementById('app');
+    setBreadcrumb([{ label: 'Hem', view: 'home' }]);
+    // We use organizations as "years" for Mognadsdialog — each "org" = one year
+    // Fetch all orgs that have assessments (dialogues)
     const orgs = await api('/organizations');
-    app.innerHTML = `<div class="container"><div class="card">
-        <div class="flex-between mb-2"><h2>Enheter</h2>
-        ${isAdmin() ? '<button class="btn btn-primary" id="btn-new-org">+ Ny enhet</button>' : ''}</div>
-        ${orgs.length === 0 ? '<div class="empty-state">Inga enheter \u00e4nnu. Skapa en f\u00f6r att b\u00f6rja.</div>'
-        : `<ul class="item-list">${orgs.map(o => `<li data-id="${o.id}"><div><strong>${esc(o.name)}</strong><div style="font-size:0.85rem;color:var(--text-light)">${esc(o.description)}</div></div><span style="font-size:0.85rem;color:var(--text-light)">${fmtDate(o.created_at)}</span></li>`).join('')}</ul>`}
-    </div></div>`;
-    app.querySelector('#btn-new-org')?.addEventListener('click', () => {
-        const m = createModal(`<h2>Ny enhet</h2><div class="form-group"><label>Namn</label><input id="org-name" type="text" placeholder="T.ex. T.ex. IT-avdelningen" /></div><div class="form-group"><label>Beskrivning</label><textarea id="org-desc" rows="2" placeholder="Valfri"></textarea></div><div style="display:flex;gap:0.5rem;justify-content:flex-end"><button class="btn btn-outline" id="modal-cancel">Avbryt</button><button class="btn btn-primary" id="modal-save">Skapa</button></div>`);
+    // Filter to those that have assessments or show all for admin to create
+    app.innerHTML = `
+    <div class="container">
+        <div class="card">
+            <div class="flex-between mb-2">
+                <h2>Mognadsdialog</h2>
+                ${isAdmin() ? '<button class="btn btn-primary" id="btn-new-year">+ Nytt \u00e5r</button>' : ''}
+            </div>
+            <p style="color:var(--text-light);font-size:0.9rem;margin-bottom:1rem">Ledningens \u00e5rliga dialogbaserade mognadsbedömning. V\u00e4lj \u00e5r f\u00f6r att genomf\u00f6ra eller se resultat.</p>
+            ${orgs.filter(o => o.description === '__dialogue__' || o.description === '').length === 0 && orgs.length === 0 ? '<div class="empty-state">Inget \u00e5r skapat \u00e4nnu.</div>' : ''}
+            <ul class="item-list" id="year-list"></ul>
+        </div>
+    </div>`;
+
+    // Load assessments for all orgs to show which have dialogues
+    const yearList = app.querySelector('#year-list');
+    // Show all orgs that have type dialogue (we'll use a naming convention)
+    const dialogueOrgs = orgs.filter(o => o.description === '__dialogue__');
+    if (dialogueOrgs.length === 0) {
+        yearList.innerHTML = '<div class="empty-state">Inget \u00e5r skapat \u00e4nnu. Klicka "+ Nytt \u00e5r" f\u00f6r att b\u00f6rja.</div>';
+    } else {
+        yearList.innerHTML = dialogueOrgs.map(o => `
+            <li data-id="${o.id}">
+                <div><strong>${esc(o.name)}</strong></div>
+                <span style="font-size:0.85rem;color:var(--text-light)">${fmtDate(o.created_at)}</span>
+            </li>`).join('');
+        yearList.querySelectorAll('li').forEach(li => li.addEventListener('click', () => navigate('org', { orgId: +li.dataset.id })));
+    }
+
+    app.querySelector('#btn-new-year')?.addEventListener('click', () => {
+        const currentYear = new Date().getFullYear();
+        const m = createModal(`
+            <h2>Nytt \u00e5r f\u00f6r Mognadsdialog</h2>
+            <div class="form-group"><label>\u00c5r</label>
+                <select id="dy-year">
+                    ${[currentYear + 1, currentYear, currentYear - 1].map(y => `<option value="${y}" ${y === currentYear ? 'selected' : ''}>${y}</option>`).join('')}
+                </select>
+            </div>
+            <div style="display:flex;gap:0.5rem;justify-content:flex-end">
+                <button class="btn btn-outline" id="modal-cancel">Avbryt</button>
+                <button class="btn btn-primary" id="modal-save">Skapa</button>
+            </div>
+        `);
         m.querySelector('#modal-cancel').addEventListener('click', () => m.remove());
-        m.querySelector('#modal-save').addEventListener('click', async () => { const n = m.querySelector('#org-name').value.trim(); if (!n) return alert('Ange ett namn f\u00f6r enheten'); await api('/organizations', { method: 'POST', body: JSON.stringify({ name: n, description: m.querySelector('#org-desc').value.trim() }) }); m.remove(); navigate('home'); });
+        m.querySelector('#modal-save').addEventListener('click', async () => {
+            const year = m.querySelector('#dy-year').value;
+            await api('/organizations', { method: 'POST', body: JSON.stringify({ name: year, description: '__dialogue__' }) });
+            m.remove();
+            navigate('dialogueHome');
+        });
+    });
+};
+
+// ── VIEW: Survey Home (unit-based) ─────────────────────────────────
+
+routes.surveyHome = async () => {
+    const app = document.getElementById('app');
+    setBreadcrumb([{ label: 'Hem', view: 'home' }]);
+    const orgs = await api('/organizations');
+    const surveyOrgs = orgs.filter(o => o.description !== '__dialogue__');
+
+    app.innerHTML = `
+    <div class="container">
+        <div class="card">
+            <div class="flex-between mb-2">
+                <h2>Mognadsmätning \u2013 Enheter</h2>
+                ${isAdmin() ? '<button class="btn btn-primary" id="btn-new-unit">+ Ny enhet</button>' : ''}
+            </div>
+            <p style="color:var(--text-light);font-size:0.9rem;margin-bottom:1rem">V\u00e4lj en enhet f\u00f6r att genomf\u00f6ra eller se resultat av mognadsm\u00e4tningar.</p>
+            ${surveyOrgs.length === 0
+                ? '<div class="empty-state">Inga enheter \u00e4nnu. Skapa en f\u00f6r att b\u00f6rja.</div>'
+                : `<ul class="item-list">${surveyOrgs.map(o => `<li data-id="${o.id}"><div><strong>${esc(o.name)}</strong><div style="font-size:0.85rem;color:var(--text-light)">${esc(o.description)}</div></div><span style="font-size:0.85rem;color:var(--text-light)">${fmtDate(o.created_at)}</span></li>`).join('')}</ul>`
+            }
+        </div>
+    </div>`;
+
+    app.querySelector('#btn-new-unit')?.addEventListener('click', () => {
+        const m = createModal(`<h2>Ny enhet</h2><div class="form-group"><label>Namn</label><input id="org-name" type="text" placeholder="T.ex. IT-avdelningen" /></div><div class="form-group"><label>Beskrivning</label><textarea id="org-desc" rows="2" placeholder="Valfri beskrivning"></textarea></div><div style="display:flex;gap:0.5rem;justify-content:flex-end"><button class="btn btn-outline" id="modal-cancel">Avbryt</button><button class="btn btn-primary" id="modal-save">Skapa</button></div>`);
+        m.querySelector('#modal-cancel').addEventListener('click', () => m.remove());
+        m.querySelector('#modal-save').addEventListener('click', async () => {
+            const n = m.querySelector('#org-name').value.trim();
+            if (!n) return alert('Ange ett namn f\u00f6r enheten');
+            await api('/organizations', { method: 'POST', body: JSON.stringify({ name: n, description: m.querySelector('#org-desc').value.trim() }) });
+            m.remove();
+            navigate('surveyHome');
+        });
     });
     app.querySelectorAll('.item-list li').forEach(li => li.addEventListener('click', () => navigate('org', { orgId: +li.dataset.id })));
 };
@@ -304,40 +413,54 @@ routes.home = async () => {
 routes.org = async ({ orgId }) => {
     const app = document.getElementById('app');
     const org = await api(`/organizations/${orgId}`);
-    const assessments = await api(`/organizations/${orgId}/assessments`);
-    setBreadcrumb([{ label: 'Hem', view: 'home' }]);
-    const fin = assessments.filter(a => a.status === 'finalized');
-    app.innerHTML = `<div class="container">
-        <div class="card"><div class="flex-between mb-2"><div><h2>${esc(org.name)}</h2><p style="color:var(--text-light);font-size:0.9rem">${esc(org.description)}</p></div>
-        <div class="btn-group">${isAdmin() && fin.length >= 2 ? `<button class="btn btn-outline btn-sm" id="btn-compare">J\u00e4mf\u00f6r \u00f6ver tid</button>` : ''}${isAdmin() ? '<button class="btn btn-primary" id="btn-new-assessment">+ Ny mognadsdialog</button>' : ''}</div></div></div>
-        <div class="card"><h2>Mognadsdialog (ledning)</h2>
-        ${assessments.length === 0 ? '<div class="empty-state">Inga dialoger \u00e4nnu.</div>'
-        : `<ul class="item-list">${assessments.map(a => `<li data-id="${a.id}" data-type="dialogue"><div><strong>${esc(a.title)}</strong><div style="font-size:0.85rem;color:var(--text-light)">${a.facilitator ? 'Ansvarig: '+esc(a.facilitator) : ''}${a.participants ? ' &middot; '+esc(a.participants) : ''}</div></div><div style="text-align:right"><span class="badge badge-${a.status}">${statusLabel(a.status)}</span><div style="font-size:0.8rem;color:var(--text-light);margin-top:0.3rem">${fmtDate(a.created_at)}</div></div></li>`).join('')}</ul>`}
-        </div>
-        <div class="card"><div class="flex-between mb-2"><h2>Mognadsmätning (enheter)</h2>
-        ${isAdmin() ? '<button class="btn btn-primary btn-sm" id="btn-new-survey">+ Ny mätning</button>' : ''}</div>
-        <div id="survey-list"></div>
-        </div></div>`;
-    app.querySelector('#btn-new-assessment')?.addEventListener('click', () => {
-        const m = createModal(`<h2>Ny mognadsdialog</h2><div class="form-group"><label>Titel</label><input id="a-title" type="text" placeholder="T.ex. Mognadsdialog VT 2026" /></div><div class="form-group"><label>Ansvarig</label><input id="a-facilitator" type="text" /></div><div class="form-group"><label>Deltagare</label><textarea id="a-participants" rows="2" placeholder="Namn, separerade med komma"></textarea></div><div style="display:flex;gap:0.5rem;justify-content:flex-end"><button class="btn btn-outline" id="modal-cancel">Avbryt</button><button class="btn btn-primary" id="modal-save">Skapa & starta</button></div>`);
-        m.querySelector('#modal-cancel').addEventListener('click', () => m.remove());
-        m.querySelector('#modal-save').addEventListener('click', async () => { const t = m.querySelector('#a-title').value.trim(); if (!t) return alert('Ange titel'); const r = await api('/assessments', { method: 'POST', body: JSON.stringify({ organization_id: orgId, title: t, facilitator: m.querySelector('#a-facilitator').value.trim(), participants: m.querySelector('#a-participants').value.trim() }) }); m.remove(); navigate('dialogue', { assessmentId: r.id }); });
-    });
-    app.querySelector('#btn-compare')?.addEventListener('click', () => navigate('compare', { orgId }));
-    app.querySelectorAll('.item-list li[data-type="dialogue"]').forEach(li => li.addEventListener('click', () => navigate('dialogue', { assessmentId: +li.dataset.id })));
-    app.querySelector('#btn-new-survey')?.addEventListener('click', () => showNewSurveyDialog(orgId));
+    const isDialogueYear = org.description === '__dialogue__';
 
-    // Load surveys
-    api(`/organizations/${orgId}/surveys`).then(surveys => {
-        const sl = app.querySelector('#survey-list');
-        if (!sl) return;
-        if (surveys.length === 0) { sl.innerHTML = '<div class="empty-state" style="padding:1.5rem">Inga m\u00e4tningar \u00e4nnu.</div>'; return; }
-        sl.innerHTML = `<ul class="item-list">${surveys.map(s => {
-            const profileName = surveyRefData?.profiles?.[s.profile_key]?.name || s.profile_key;
-            return `<li data-id="${s.id}" data-type="survey"><div><strong>${esc(s.title)}</strong><div style="font-size:0.85rem;color:var(--text-light)">${esc(profileName)}${s.respondent_name ? ' \u00b7 '+esc(s.respondent_name) : ''}</div></div><div style="text-align:right"><span class="badge badge-${s.status === 'completed' ? 'finalized' : 'in_progress'}">${s.status === 'completed' ? 'Slutf\u00f6rd' : 'P\u00e5g\u00e5ende'}</span><div style="font-size:0.8rem;color:var(--text-light);margin-top:0.3rem">${fmtDate(s.created_at)}</div></div></li>`;
-        }).join('')}</ul>`;
-        sl.querySelectorAll('li[data-type="survey"]').forEach(li => li.addEventListener('click', () => navigate('survey', { surveyId: +li.dataset.id })));
-    });
+    if (isDialogueYear) {
+        // ── DIALOGUE YEAR VIEW ──
+        const assessments = await api(`/organizations/${orgId}/assessments`);
+        setBreadcrumb([{ label: 'Hem', view: 'home' }, { label: 'Mognadsdialog', view: 'dialogueHome' }]);
+        const fin = assessments.filter(a => a.status === 'finalized');
+        app.innerHTML = `<div class="container">
+            <div class="card"><div class="flex-between mb-2"><div><h2>Mognadsdialog ${esc(org.name)}</h2></div>
+            <div class="btn-group">${isAdmin() && fin.length >= 2 ? `<button class="btn btn-outline btn-sm" id="btn-compare">J\u00e4mf\u00f6r \u00f6ver tid</button>` : ''}${isAdmin() ? '<button class="btn btn-primary" id="btn-new-assessment">+ Ny dialog</button>' : ''}</div></div></div>
+            <div class="card"><h2>Dialoger</h2>
+            ${assessments.length === 0 ? '<div class="empty-state">Inga dialoger f\u00f6r detta \u00e5r \u00e4nnu.</div>'
+            : `<ul class="item-list">${assessments.map(a => `<li data-id="${a.id}" data-type="dialogue"><div><strong>${esc(a.title)}</strong><div style="font-size:0.85rem;color:var(--text-light)">${a.facilitator ? 'Ansvarig: '+esc(a.facilitator) : ''}${a.participants ? ' &middot; '+esc(a.participants) : ''}</div></div><div style="text-align:right"><span class="badge badge-${a.status}">${statusLabel(a.status)}</span><div style="font-size:0.8rem;color:var(--text-light);margin-top:0.3rem">${fmtDate(a.created_at)}</div></div></li>`).join('')}</ul>`}
+            </div></div>`;
+    } else {
+        // ── SURVEY UNIT VIEW ──
+        setBreadcrumb([{ label: 'Hem', view: 'home' }, { label: 'Mognadsmätning', view: 'surveyHome' }]);
+        app.innerHTML = `<div class="container">
+            <div class="card"><div class="flex-between mb-2"><div><h2>${esc(org.name)}</h2><p style="color:var(--text-light);font-size:0.9rem">${esc(org.description)}</p></div>
+            <div class="btn-group">${isAdmin() ? '<button class="btn btn-primary btn-sm" id="btn-new-survey">+ Ny mätning</button>' : ''}</div></div></div>
+            <div class="card"><h2>Mätningar</h2>
+            <div id="survey-list"><div class="empty-state" style="padding:1rem">Laddar...</div></div>
+            </div></div>`;
+    }
+    if (isDialogueYear) {
+        // Dialogue year events
+        app.querySelector('#btn-new-assessment')?.addEventListener('click', () => {
+            const m = createModal(`<h2>Ny mognadsdialog</h2><div class="form-group"><label>Titel</label><input id="a-title" type="text" placeholder="T.ex. Mognadsdialog VT 2026" /></div><div class="form-group"><label>Ansvarig</label><input id="a-facilitator" type="text" /></div><div class="form-group"><label>Deltagare</label><textarea id="a-participants" rows="2" placeholder="Namn, separerade med komma"></textarea></div><div style="display:flex;gap:0.5rem;justify-content:flex-end"><button class="btn btn-outline" id="modal-cancel">Avbryt</button><button class="btn btn-primary" id="modal-save">Skapa & starta</button></div>`);
+            m.querySelector('#modal-cancel').addEventListener('click', () => m.remove());
+            m.querySelector('#modal-save').addEventListener('click', async () => { const t = m.querySelector('#a-title').value.trim(); if (!t) return alert('Ange titel'); const r = await api('/assessments', { method: 'POST', body: JSON.stringify({ organization_id: orgId, title: t, facilitator: m.querySelector('#a-facilitator').value.trim(), participants: m.querySelector('#a-participants').value.trim() }) }); m.remove(); navigate('dialogue', { assessmentId: r.id }); });
+        });
+        app.querySelector('#btn-compare')?.addEventListener('click', () => navigate('compare', { orgId }));
+        app.querySelectorAll('.item-list li[data-type="dialogue"]').forEach(li => li.addEventListener('click', () => navigate('dialogue', { assessmentId: +li.dataset.id })));
+    } else {
+        // Survey unit events
+        app.querySelector('#btn-new-survey')?.addEventListener('click', () => showNewSurveyDialog(orgId));
+        // Load surveys
+        api(`/organizations/${orgId}/surveys`).then(surveys => {
+            const sl = app.querySelector('#survey-list');
+            if (!sl) return;
+            if (surveys.length === 0) { sl.innerHTML = '<div class="empty-state" style="padding:1.5rem">Inga m\u00e4tningar \u00e4nnu.</div>'; return; }
+            sl.innerHTML = `<ul class="item-list">${surveys.map(s => {
+                const profileName = surveyRefData?.profiles?.[s.profile_key]?.name || s.profile_key;
+                return `<li data-id="${s.id}" data-type="survey"><div><strong>${esc(s.title)}</strong><div style="font-size:0.85rem;color:var(--text-light)">${esc(profileName)}${s.respondent_name ? ' \u00b7 '+esc(s.respondent_name) : ''}</div></div><div style="text-align:right"><span class="badge badge-${s.status === 'completed' ? 'finalized' : 'in_progress'}">${s.status === 'completed' ? 'Slutf\u00f6rd' : 'P\u00e5g\u00e5ende'}</span><div style="font-size:0.8rem;color:var(--text-light);margin-top:0.3rem">${fmtDate(s.created_at)}</div></div></li>`;
+            }).join('')}</ul>`;
+            sl.querySelectorAll('li[data-type="survey"]').forEach(li => li.addEventListener('click', () => navigate('survey', { surveyId: +li.dataset.id })));
+        });
+    }
 };
 
 let surveyRefData = null;
