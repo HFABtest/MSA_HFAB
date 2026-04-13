@@ -312,10 +312,10 @@ routes.org = async ({ orgId }) => {
         <div class="btn-group">${isAdmin() && fin.length >= 2 ? `<button class="btn btn-outline btn-sm" id="btn-compare">J\u00e4mf\u00f6r \u00f6ver tid</button>` : ''}${isAdmin() ? '<button class="btn btn-primary" id="btn-new-assessment">+ Ny mognadsdialog</button>' : ''}</div></div></div>
         <div class="card"><h2>Genomf\u00f6rda dialoger</h2>
         ${assessments.length === 0 ? '<div class="empty-state">Inga dialoger \u00e4nnu.</div>'
-        : `<ul class="item-list">${assessments.map(a => `<li data-id="${a.id}"><div><strong>${esc(a.title)}</strong><div style="font-size:0.85rem;color:var(--text-light)">${a.facilitator ? 'Facilitator: '+esc(a.facilitator) : ''}${a.participants ? ' &middot; '+esc(a.participants) : ''}</div></div><div style="text-align:right"><span class="badge badge-${a.status}">${statusLabel(a.status)}</span><div style="font-size:0.8rem;color:var(--text-light);margin-top:0.3rem">${fmtDate(a.created_at)}</div></div></li>`).join('')}</ul>`}
+        : `<ul class="item-list">${assessments.map(a => `<li data-id="${a.id}"><div><strong>${esc(a.title)}</strong><div style="font-size:0.85rem;color:var(--text-light)">${a.facilitator ? 'Ansvarig: '+esc(a.facilitator) : ''}${a.participants ? ' &middot; '+esc(a.participants) : ''}</div></div><div style="text-align:right"><span class="badge badge-${a.status}">${statusLabel(a.status)}</span><div style="font-size:0.8rem;color:var(--text-light);margin-top:0.3rem">${fmtDate(a.created_at)}</div></div></li>`).join('')}</ul>`}
         </div></div>`;
     app.querySelector('#btn-new-assessment')?.addEventListener('click', () => {
-        const m = createModal(`<h2>Ny mognadsdialog</h2><div class="form-group"><label>Titel</label><input id="a-title" type="text" placeholder="T.ex. Mognadsdialog VT 2026" /></div><div class="form-group"><label>Facilitator</label><input id="a-facilitator" type="text" /></div><div class="form-group"><label>Deltagare</label><textarea id="a-participants" rows="2" placeholder="Namn, separerade med komma"></textarea></div><div style="display:flex;gap:0.5rem;justify-content:flex-end"><button class="btn btn-outline" id="modal-cancel">Avbryt</button><button class="btn btn-primary" id="modal-save">Skapa & starta</button></div>`);
+        const m = createModal(`<h2>Ny mognadsdialog</h2><div class="form-group"><label>Titel</label><input id="a-title" type="text" placeholder="T.ex. Mognadsdialog VT 2026" /></div><div class="form-group"><label>Ansvarig</label><input id="a-facilitator" type="text" /></div><div class="form-group"><label>Deltagare</label><textarea id="a-participants" rows="2" placeholder="Namn, separerade med komma"></textarea></div><div style="display:flex;gap:0.5rem;justify-content:flex-end"><button class="btn btn-outline" id="modal-cancel">Avbryt</button><button class="btn btn-primary" id="modal-save">Skapa & starta</button></div>`);
         m.querySelector('#modal-cancel').addEventListener('click', () => m.remove());
         m.querySelector('#modal-save').addEventListener('click', async () => { const t = m.querySelector('#a-title').value.trim(); if (!t) return alert('Ange titel'); const r = await api('/assessments', { method: 'POST', body: JSON.stringify({ organization_id: orgId, title: t, facilitator: m.querySelector('#a-facilitator').value.trim(), participants: m.querySelector('#a-participants').value.trim() }) }); m.remove(); navigate('dialogue', { assessmentId: r.id }); });
     });
@@ -373,7 +373,7 @@ routes.dialogue = async ({ assessmentId }) => {
                 <span style="font-size:0.85rem;color:var(--text-light)">${esc(assessment.facilitator)} &middot; ${fmtDate(assessment.created_at)}</span></div>
                 <div class="btn-group">
                     <button class="btn btn-outline btn-sm" id="btn-results">Resultat\u00f6versikt</button>
-                    ${!isFinalized && isAdmin() ? `<button class="btn btn-accent btn-sm" id="btn-finalize">Slutf\u00f6r dialog</button>` : ''}${isFinalized ? '<span class="badge badge-finalized">Slutf\u00f6rd</span>' : ''}
+                    ${isFinalized ? '<span class="badge badge-finalized">Slutf\u00f6rd</span>' : ''}
                 </div>
             </div>
 
@@ -494,7 +494,13 @@ routes.dialogue = async ({ assessmentId }) => {
                 <div class="flex-between mt-2">
                     <button class="btn btn-outline" id="btn-prev" ${currentIdx === 0 ? 'disabled' : ''}>&larr; F\u00f6reg\u00e5ende</button>
                     <span style="color:var(--text-light);font-size:0.9rem">${currentIdx + 1} / ${perspectives.length}</span>
-                    <button class="btn btn-primary" id="btn-next" ${currentIdx === perspectives.length - 1 ? 'disabled' : ''}>N\u00e4sta &rarr;</button>
+                    ${currentIdx < perspectives.length - 1
+                        ? `<button class="btn btn-primary" id="btn-next">N\u00e4sta &rarr;</button>`
+                        : (!isFinalized && isAdmin() && progress.pct === 100
+                            ? `<button class="btn btn-accent" id="btn-finalize">Slutf\u00f6r dialog</button>`
+                            : `<button class="btn btn-primary" id="btn-results-end">Visa resultat</button>`
+                        )
+                    }
                 </div>
             </div>
         </div>`;
@@ -519,13 +525,11 @@ routes.dialogue = async ({ assessmentId }) => {
         app.querySelector('#btn-next')?.addEventListener('click', () => { if (currentIdx < perspectives.length - 1) { currentIdx++; render(); } });
         app.querySelector('#btn-results')?.addEventListener('click', () => navigate('results', { assessmentId }));
         app.querySelector('#btn-finalize')?.addEventListener('click', async () => {
-            const p = getProgress();
-            let msg = '\u00c4r du s\u00e4ker p\u00e5 att du vill slutf\u00f6ra dialogen?';
-            if (p.assessed < p.total) msg = `OBS: Bara ${p.assessed} av ${p.total} perspektiv bed\u00f6mda.\n\n` + msg;
-            if (!confirm(msg)) return;
+            if (!confirm('\u00c4r du s\u00e4ker p\u00e5 att du vill slutf\u00f6ra dialogen? Den kan inte \u00e4ndras efter\u00e5t.')) return;
             await api(`/assessments/${assessmentId}/status?status=finalized`, { method: 'PATCH' });
-            navigate('dialogue', { assessmentId });
+            navigate('results', { assessmentId });
         });
+        app.querySelector('#btn-results-end')?.addEventListener('click', () => navigate('results', { assessmentId }));
 
         if (isFinalized) return;
 
@@ -623,7 +627,12 @@ routes.results = async ({ assessmentId }) => {
 };
 
 function renderOverview(c, perspectives) {
-    c.innerHTML = `<div class="charts-grid">
+    c.innerHTML = `
+    <div class="card">
+        <h2>Mognadsdialogen \u2013 Resultat</h2>
+        <div class="chart-container"><canvas id="bar-chart" width="700" height="380"></canvas></div>
+    </div>
+    <div class="charts-grid">
         <div class="card"><h2>Radardiagram</h2><div class="chart-container"><canvas id="radar" width="450" height="450"></canvas></div></div>
         <div class="card"><h2>Mognadstrappa</h2><div id="ladder"></div></div>
     </div>
@@ -634,8 +643,108 @@ function renderOverview(c, perspectives) {
         return `<tr style="border-bottom:1px solid var(--border)"><td style="padding:0.5rem;font-weight:600">${ref.name_sv}</td><td style="padding:0.5rem;text-align:center"><span class="level-badge level-${p.chosen_level || 'none'}" style="display:inline-block">${p.chosen_level || '\u2013'}</span></td><td style="padding:0.5rem;font-size:0.9rem;color:var(--text-light)">${esc(p.reasoning) || '<em>Ingen motivering</em>'}</td></tr>`;
     }).join('')}
     </tbody></table></div>`;
+    drawBarChart(perspectives);
     drawRadar(perspectives);
     drawLadder(perspectives);
+}
+
+// ── MSB-style bar chart (Nivå 1-4 y-axis, perspectives x-axis) ────
+
+function drawBarChart(perspectives) {
+    const canvas = document.getElementById('bar-chart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    const padLeft = 60, padRight = 20, padTop = 20, padBottom = 70;
+    const chartW = W - padLeft - padRight;
+    const chartH = H - padTop - padBottom;
+    const n = perspectives.length;
+    const levels = 4;
+    const barColors = { 1: '#c0392b', 2: '#e67e22', 3: '#f1c40f', 4: '#27ae60' };
+    const cellBg = { 1: '#c0392b22', 2: '#e67e2222', 3: '#f1c40f22', 4: '#27ae6022' };
+
+    ctx.clearRect(0, 0, W, H);
+
+    // Background grid — colored rows like MSB material
+    for (let l = 1; l <= levels; l++) {
+        const y = padTop + chartH - (l / levels) * chartH;
+        const rowH = chartH / levels;
+        ctx.fillStyle = cellBg[l];
+        ctx.fillRect(padLeft, y, chartW, rowH);
+    }
+
+    // Grid lines + y-axis labels
+    ctx.strokeStyle = '#ddd';
+    ctx.lineWidth = 1;
+    ctx.fillStyle = '#555';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    for (let l = 0; l <= levels; l++) {
+        const y = padTop + chartH - (l / levels) * chartH;
+        ctx.beginPath();
+        ctx.moveTo(padLeft, y);
+        ctx.lineTo(padLeft + chartW, y);
+        ctx.stroke();
+        if (l > 0) {
+            ctx.fillText(`Niv\u00e5 ${l}`, padLeft - 8, y + (chartH / levels) / 2);
+        }
+    }
+
+    // Bars
+    const barGap = 12;
+    const totalBarArea = chartW / n;
+    const barW = Math.min(totalBarArea - barGap * 2, 80);
+
+    for (let i = 0; i < n; i++) {
+        const p = perspectives[i];
+        const ref = refData.perspectives.find(r => r.key === p.perspective_key);
+        const lvl = p.chosen_level || 0;
+        const x = padLeft + i * totalBarArea + (totalBarArea - barW) / 2;
+
+        if (lvl > 0) {
+            const barH = (lvl / levels) * chartH;
+            const y = padTop + chartH - barH;
+
+            // Bar with gradient-like solid color
+            ctx.fillStyle = barColors[lvl];
+            ctx.beginPath();
+            const radius = 4;
+            ctx.moveTo(x + radius, y);
+            ctx.lineTo(x + barW - radius, y);
+            ctx.quadraticCurveTo(x + barW, y, x + barW, y + radius);
+            ctx.lineTo(x + barW, padTop + chartH);
+            ctx.lineTo(x, padTop + chartH);
+            ctx.lineTo(x, y + radius);
+            ctx.quadraticCurveTo(x, y, x + radius, y);
+            ctx.fill();
+
+            // Level number on bar
+            ctx.fillStyle = lvl === 3 ? '#555' : 'white';
+            ctx.font = 'bold 18px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(lvl.toString(), x + barW / 2, y + Math.min(barH / 2, 25));
+        }
+
+        // X-axis labels (perspective names, abbreviated)
+        const shortNames = {
+            risk_management: 'Risk-\\nhantering',
+            information_classification: 'Info-\\nklassning',
+            incident_management: 'Incident-\\nhantering',
+            procurement: 'Upp-\\nhandling',
+            competence: 'Kompetens',
+            follow_up: 'Upp-\\nf\u00f6ljning',
+        };
+        const label = (shortNames[p.perspective_key] || ref.name_sv).split('\\n');
+        ctx.fillStyle = '#333';
+        ctx.font = '12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        label.forEach((line, li) => {
+            ctx.fillText(line, x + barW / 2, padTop + chartH + 8 + li * 16);
+        });
+    }
 }
 
 function renderHeatmap(c, perspectives) {
