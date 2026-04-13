@@ -222,6 +222,38 @@ async def get_organization(org_id: int) -> Optional[dict]:
         await db.close()
 
 
+async def update_organization(org_id: int, name: str, description: str) -> bool:
+    db = await get_db()
+    try:
+        await db.execute("UPDATE organizations SET name = ?, description = ? WHERE id = ?", (name, description, org_id))
+        await db.commit()
+        return True
+    finally:
+        await db.close()
+
+
+async def delete_organization(org_id: int) -> bool:
+    db = await get_db()
+    try:
+        # Delete all related data
+        cursor = await db.execute("SELECT id FROM surveys WHERE organization_id = ?", (org_id,))
+        survey_ids = [r["id"] for r in await cursor.fetchall()]
+        for sid in survey_ids:
+            await db.execute("DELETE FROM survey_answers WHERE survey_id = ?", (sid,))
+        await db.execute("DELETE FROM surveys WHERE organization_id = ?", (org_id,))
+        cursor = await db.execute("SELECT id FROM assessments WHERE organization_id = ?", (org_id,))
+        assessment_ids = [r["id"] for r in await cursor.fetchall()]
+        for aid in assessment_ids:
+            await db.execute("DELETE FROM dimension_assessments WHERE assessment_id = ?", (aid,))
+            await db.execute("DELETE FROM perspective_assessments WHERE assessment_id = ?", (aid,))
+        await db.execute("DELETE FROM assessments WHERE organization_id = ?", (org_id,))
+        await db.execute("DELETE FROM organizations WHERE id = ?", (org_id,))
+        await db.commit()
+        return True
+    finally:
+        await db.close()
+
+
 # ── Assessments ─────────────────────────────────────────────────────
 
 async def create_assessment(organization_id: int, title: str, facilitator: str = "", participants: str = "") -> dict:
@@ -539,6 +571,17 @@ async def complete_survey(survey_id: int) -> bool:
             "UPDATE surveys SET status = 'completed', completed_at = ? WHERE id = ?",
             (now, survey_id),
         )
+        await db.commit()
+        return True
+    finally:
+        await db.close()
+
+
+async def delete_survey(survey_id: int) -> bool:
+    db = await get_db()
+    try:
+        await db.execute("DELETE FROM survey_answers WHERE survey_id = ?", (survey_id,))
+        await db.execute("DELETE FROM surveys WHERE id = ?", (survey_id,))
         await db.commit()
         return True
     finally:

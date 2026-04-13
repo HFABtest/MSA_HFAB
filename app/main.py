@@ -197,6 +197,27 @@ async def get_organization(org_id: int, request: Request):
     return org
 
 
+@app.put("/api/organizations/{org_id}")
+async def update_organization(org_id: int, request: Request):
+    require_auth(request)
+    data = await request.json()
+    org = await db.get_organization(org_id)
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    await db.update_organization(org_id, data.get("name", org["name"]), data.get("description", org["description"]))
+    return {"ok": True}
+
+
+@app.delete("/api/organizations/{org_id}")
+async def delete_organization(org_id: int, request: Request):
+    require_admin(request)
+    org = await db.get_organization(org_id)
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    await db.delete_organization(org_id)
+    return {"ok": True}
+
+
 # ── Assessments (read: auth, create/finalize: admin) ───────────────
 
 @app.post("/api/assessments", response_model=AssessmentResponse, status_code=201)
@@ -498,6 +519,16 @@ async def complete_survey(survey_id: int, request: Request):
     if survey is None:
         raise HTTPException(status_code=404, detail="Survey not found")
     await db.complete_survey(survey_id)
+    return {"ok": True}
+
+
+@app.delete("/api/surveys/{survey_id}")
+async def delete_survey(survey_id: int, request: Request):
+    require_admin(request)
+    survey = await db.get_survey(survey_id)
+    if survey is None:
+        raise HTTPException(status_code=404, detail="Survey not found")
+    await db.delete_survey(survey_id)
     return {"ok": True}
 
 

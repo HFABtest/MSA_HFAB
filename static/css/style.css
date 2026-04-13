@@ -24,10 +24,14 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    font-family: 'Open Sans', 'Segoe UI', system-ui, sans-serif;
     background: var(--bg);
     color: var(--text);
     line-height: 1.6;
+}
+
+h1, h2, h3 {
+    font-family: 'Lora', 'Tiempos', 'Georgia', serif;
 }
 
 /* ── Layout ────────────────────────────────────────── */
