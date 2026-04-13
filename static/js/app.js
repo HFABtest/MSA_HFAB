@@ -456,7 +456,7 @@ routes.org = async ({ orgId }) => {
             if (surveys.length === 0) { sl.innerHTML = '<div class="empty-state" style="padding:1.5rem">Inga m\u00e4tningar \u00e4nnu.</div>'; return; }
             sl.innerHTML = `<ul class="item-list">${surveys.map(s => {
                 const profileName = surveyRefData?.profiles?.[s.profile_key]?.name || s.profile_key;
-                return `<li data-id="${s.id}" data-type="survey"><div><strong>${esc(s.title)}</strong><div style="font-size:0.85rem;color:var(--text-light)">${esc(profileName)}${s.respondent_name ? ' \u00b7 '+esc(s.respondent_name) : ''}</div></div><div style="text-align:right"><span class="badge badge-${s.status === 'completed' ? 'finalized' : 'in_progress'}">${s.status === 'completed' ? 'Slutf\u00f6rd' : 'P\u00e5g\u00e5ende'}</span><div style="font-size:0.8rem;color:var(--text-light);margin-top:0.3rem">${fmtDate(s.created_at)}</div></div></li>`;
+                return `<li data-id="${s.id}" data-type="survey"><div><strong>${esc(s.title)}</strong><div style="font-size:0.85rem;color:var(--text-light)">${esc(profileName)}</div></div><div style="text-align:right"><span class="badge badge-${s.status === 'completed' ? 'finalized' : 'in_progress'}">${s.status === 'completed' ? 'Slutf\u00f6rd' : 'P\u00e5g\u00e5ende'}</span><div style="font-size:0.8rem;color:var(--text-light);margin-top:0.3rem">${fmtDate(s.created_at)}</div></div></li>`;
             }).join('')}</ul>`;
             sl.querySelectorAll('li[data-type="survey"]').forEach(li => li.addEventListener('click', () => navigate('survey', { surveyId: +li.dataset.id })));
         });
@@ -480,7 +480,6 @@ function showNewSurveyDialog(orgId) {
             <div class="form-group"><label>Datum</label>
                 <input id="sv-date" type="date" value="${today}" />
             </div>
-            <div class="form-group"><label>Respondent (valfritt)</label><input id="sv-name" type="text" placeholder="Namn p\u00e5 den som svarar" /></div>
             <div style="display:flex;gap:0.5rem;justify-content:flex-end">
                 <button class="btn btn-outline" id="modal-cancel">Avbryt</button>
                 <button class="btn btn-primary" id="modal-save">Skapa</button>
@@ -495,7 +494,7 @@ function showNewSurveyDialog(orgId) {
             const res = await api('/surveys', { method: 'POST', body: JSON.stringify({
                 organization_id: orgId, title: title,
                 profile_key: profile,
-                respondent_name: m.querySelector('#sv-name').value.trim(),
+                respondent_name: '',
             })});
             m.remove();
             navigate('survey', { surveyId: res.id });
@@ -1090,7 +1089,7 @@ routes.survey = async ({ surveyId }) => {
         <div class="container">
             <div class="flex-between mb-2">
                 <div><h2 style="margin:0">${esc(survey.title)}</h2>
-                <span style="font-size:0.85rem;color:var(--text-light)">${esc(profileName)} ${survey.respondent_name ? '\u00b7 '+esc(survey.respondent_name) : ''}</span></div>
+                <span style="font-size:0.85rem;color:var(--text-light)">${esc(profileName)} </span></div>
                 ${isCompleted ? '<span class="badge badge-finalized">Slutf\u00f6rd</span>' : ''}
             </div>
 
@@ -1213,7 +1212,7 @@ routes.surveyResults = async ({ surveyId }) => {
     <div class="container-wide">
         <div class="flex-between mb-2">
             <div><h2>${esc(survey.title)} \u2013 Resultat</h2>
-            <span style="font-size:0.85rem;color:var(--text-light)">${esc(profileName)} ${survey.respondent_name ? '\u00b7 '+esc(survey.respondent_name) : ''} \u00b7 ${fmtDate(survey.created_at)}</span></div>
+            <span style="font-size:0.85rem;color:var(--text-light)">${esc(profileName)}  \u00b7 ${fmtDate(survey.created_at)}</span></div>
             <button class="btn btn-outline btn-sm" id="sv-back">Tillbaka</button>
         </div>
 
