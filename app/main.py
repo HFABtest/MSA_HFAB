@@ -346,11 +346,13 @@ async def export_assessment_pdf(assessment_id: int, request: Request):
 
 @app.get("/api/survey/reference")
 async def get_survey_reference():
-    from .survey_data import SURVEY_SECTIONS, SURVEY_LEVELS, UNIT_PROFILES, SURVEY_QUESTIONS
+    from .survey_data import SURVEY_SECTIONS, SURVEY_LEVELS, UNIT_PROFILES, SURVEY_QUESTIONS, UNIT_TO_PROFILE, HFAB_UNITS
     return {
         "sections": SURVEY_SECTIONS,
         "levels": SURVEY_LEVELS,
         "profiles": {k: {"name": v["name"], "description": v["description"], "example_units": v["example_units"]} for k, v in UNIT_PROFILES.items()},
+        "units": UNIT_TO_PROFILE,
+        "unit_list": HFAB_UNITS,
         "total_questions": len(SURVEY_QUESTIONS),
     }
 

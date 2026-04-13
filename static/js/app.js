@@ -471,14 +471,16 @@ async function getSurveyRef() {
 
 function showNewSurveyDialog(orgId) {
     getSurveyRef().then(ref => {
+        const today = new Date().toISOString().split('T')[0];
         const m = createModal(`
             <h2>Ny mognadsmätning</h2>
-            <div class="form-group"><label>Titel</label><input id="sv-title" type="text" placeholder="T.ex. Infosäk-mätning IT VT2026" /></div>
-            <div class="form-group"><label>Enhetsprofil</label>
-                <select id="sv-profile">${Object.entries(ref.profiles).map(([k, v]) => `<option value="${k}">${v.name} (${v.example_units.join(', ')})</option>`).join('')}</select>
-                <div class="hint">Profilen styr vilka frågor som visas — välj den som bäst matchar enheten.</div>
+            <div class="form-group"><label>Enhet</label>
+                <select id="sv-unit">${ref.unit_list.map(u => `<option value="${u}">${u}</option>`).join('')}</select>
             </div>
-            <div class="form-group"><label>Respondent (valfritt)</label><input id="sv-name" type="text" placeholder="Namn på den som svarar" /></div>
+            <div class="form-group"><label>Datum</label>
+                <input id="sv-date" type="date" value="${today}" />
+            </div>
+            <div class="form-group"><label>Respondent (valfritt)</label><input id="sv-name" type="text" placeholder="Namn p\u00e5 den som svarar" /></div>
             <div style="display:flex;gap:0.5rem;justify-content:flex-end">
                 <button class="btn btn-outline" id="modal-cancel">Avbryt</button>
                 <button class="btn btn-primary" id="modal-save">Skapa</button>
@@ -486,11 +488,13 @@ function showNewSurveyDialog(orgId) {
         `);
         m.querySelector('#modal-cancel').addEventListener('click', () => m.remove());
         m.querySelector('#modal-save').addEventListener('click', async () => {
-            const t = m.querySelector('#sv-title').value.trim();
-            if (!t) return alert('Ange en titel');
+            const unit = m.querySelector('#sv-unit').value;
+            const date = m.querySelector('#sv-date').value;
+            const profile = ref.units[unit] || 'office_admin';
+            const title = `${unit} \u2013 ${date}`;
             const res = await api('/surveys', { method: 'POST', body: JSON.stringify({
-                organization_id: orgId, title: t,
-                profile_key: m.querySelector('#sv-profile').value,
+                organization_id: orgId, title: title,
+                profile_key: profile,
                 respondent_name: m.querySelector('#sv-name').value.trim(),
             })});
             m.remove();

@@ -433,6 +433,29 @@ SURVEY_QUESTIONS = [
     },
 ]
 
+# ── HFAB units → profile mapping ─────────────────────────────────────
+# Each actual HFAB unit maps to exactly one profile.
+
+UNIT_TO_PROFILE: dict[str, str] = {
+    "HR": "office_admin",
+    "Affärsstöd": "office_admin",
+    "Ekonomi och verksamhetsstöd": "office_admin",
+    "IT och informationssäkerhet": "it_security",
+    "Kommunikation": "office_admin",
+    "Bostadssociala": "social_work",
+    "Framtidsakademin": "field_operations",
+    "Fastighetsutveckling": "property_mgmt",
+    "Marknad": "customer_facing",
+    "Produkt": "customer_facing",
+    "Kundcenter": "customer_facing",
+    "Fastighet": "property_mgmt",
+    "Fastighetsstab": "property_mgmt",
+    "Affärsområden": "property_mgmt",
+    "Egen regi": "field_operations",
+}
+
+HFAB_UNITS = list(UNIT_TO_PROFILE.keys())
+
 # ── Helper: get questions for a profile ──────────────────────────────
 
 def get_questions_for_profile(profile_key: str) -> list[dict]:
