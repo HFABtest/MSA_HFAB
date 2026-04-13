@@ -76,6 +76,27 @@ async def init_db():
                 value TEXT NOT NULL DEFAULT ''
             );
 
+            -- Survey (unit-level maturity measurement)
+            CREATE TABLE IF NOT EXISTS surveys (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                organization_id INTEGER NOT NULL REFERENCES organizations(id),
+                title TEXT NOT NULL,
+                profile_key TEXT NOT NULL DEFAULT '',
+                respondent_name TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'draft',
+                created_at TEXT NOT NULL,
+                completed_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS survey_answers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                survey_id INTEGER NOT NULL REFERENCES surveys(id),
+                question_id TEXT NOT NULL,
+                selected_level INTEGER,
+                comment TEXT NOT NULL DEFAULT '',
+                UNIQUE(survey_id, question_id)
+            );
+
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL UNIQUE,
@@ -346,6 +367,115 @@ async def get_settings() -> dict[str, str]:
         cursor = await db.execute("SELECT key, value FROM settings")
         rows = await cursor.fetchall()
         return {r["key"]: r["value"] for r in rows}
+    finally:
+        await db.close()
+
+
+# ── Surveys ──────────────────────────────────────────────────────────
+
+async def create_survey(organization_id: int, title: str, profile_key: str, respondent_name: str) -> dict:
+    db = await get_db()
+    try:
+        now = _now()
+        cursor = await db.execute(
+            "INSERT INTO surveys (organization_id, title, profile_key, respondent_name, status, created_at) VALUES (?, ?, ?, ?, 'draft', ?)",
+            (organization_id, title, profile_key, respondent_name, now),
+        )
+        survey_id = cursor.lastrowid
+        # Pre-create answers for applicable questions
+        from .survey_data import get_questions_for_profile
+        questions = get_questions_for_profile(profile_key)
+        for q in questions:
+            await db.execute(
+                "INSERT INTO survey_answers (survey_id, question_id, comment) VALUES (?, ?, '')",
+                (survey_id, q["id"]),
+            )
+        await db.commit()
+        return {
+            "id": survey_id, "organization_id": organization_id, "title": title,
+            "profile_key": profile_key, "respondent_name": respondent_name,
+            "status": "draft", "created_at": _parse_dt(now), "completed_at": None,
+        }
+    finally:
+        await db.close()
+
+
+async def list_surveys(organization_id: int) -> list[dict]:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM surveys WHERE organization_id = ? ORDER BY created_at DESC",
+            (organization_id,),
+        )
+        rows = await cursor.fetchall()
+        return [
+            {
+                "id": r["id"], "organization_id": r["organization_id"], "title": r["title"],
+                "profile_key": r["profile_key"], "respondent_name": r["respondent_name"],
+                "status": r["status"], "created_at": _parse_dt(r["created_at"]),
+                "completed_at": _parse_dt(r["completed_at"]),
+            }
+            for r in rows
+        ]
+    finally:
+        await db.close()
+
+
+async def get_survey(survey_id: int) -> Optional[dict]:
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM surveys WHERE id = ?", (survey_id,))
+        r = await cursor.fetchone()
+        if r is None:
+            return None
+        return {
+            "id": r["id"], "organization_id": r["organization_id"], "title": r["title"],
+            "profile_key": r["profile_key"], "respondent_name": r["respondent_name"],
+            "status": r["status"], "created_at": _parse_dt(r["created_at"]),
+            "completed_at": _parse_dt(r["completed_at"]),
+        }
+    finally:
+        await db.close()
+
+
+async def get_survey_answers(survey_id: int) -> list[dict]:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM survey_answers WHERE survey_id = ?", (survey_id,),
+        )
+        rows = await cursor.fetchall()
+        return [
+            {"question_id": r["question_id"], "selected_level": r["selected_level"], "comment": r["comment"]}
+            for r in rows
+        ]
+    finally:
+        await db.close()
+
+
+async def update_survey_answer(survey_id: int, question_id: str, selected_level: Optional[int], comment: str) -> bool:
+    db = await get_db()
+    try:
+        await db.execute(
+            "UPDATE survey_answers SET selected_level = ?, comment = ? WHERE survey_id = ? AND question_id = ?",
+            (selected_level, comment, survey_id, question_id),
+        )
+        await db.commit()
+        return True
+    finally:
+        await db.close()
+
+
+async def complete_survey(survey_id: int) -> bool:
+    db = await get_db()
+    try:
+        now = _now()
+        await db.execute(
+            "UPDATE surveys SET status = 'completed', completed_at = ? WHERE id = ?",
+            (now, survey_id),
+        )
+        await db.commit()
+        return True
     finally:
         await db.close()
 

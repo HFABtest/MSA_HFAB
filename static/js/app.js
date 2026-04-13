@@ -310,9 +310,13 @@ routes.org = async ({ orgId }) => {
     app.innerHTML = `<div class="container">
         <div class="card"><div class="flex-between mb-2"><div><h2>${esc(org.name)}</h2><p style="color:var(--text-light);font-size:0.9rem">${esc(org.description)}</p></div>
         <div class="btn-group">${isAdmin() && fin.length >= 2 ? `<button class="btn btn-outline btn-sm" id="btn-compare">J\u00e4mf\u00f6r \u00f6ver tid</button>` : ''}${isAdmin() ? '<button class="btn btn-primary" id="btn-new-assessment">+ Ny mognadsdialog</button>' : ''}</div></div></div>
-        <div class="card"><h2>Genomf\u00f6rda dialoger</h2>
+        <div class="card"><h2>Mognadsdialog (ledning)</h2>
         ${assessments.length === 0 ? '<div class="empty-state">Inga dialoger \u00e4nnu.</div>'
-        : `<ul class="item-list">${assessments.map(a => `<li data-id="${a.id}"><div><strong>${esc(a.title)}</strong><div style="font-size:0.85rem;color:var(--text-light)">${a.facilitator ? 'Ansvarig: '+esc(a.facilitator) : ''}${a.participants ? ' &middot; '+esc(a.participants) : ''}</div></div><div style="text-align:right"><span class="badge badge-${a.status}">${statusLabel(a.status)}</span><div style="font-size:0.8rem;color:var(--text-light);margin-top:0.3rem">${fmtDate(a.created_at)}</div></div></li>`).join('')}</ul>`}
+        : `<ul class="item-list">${assessments.map(a => `<li data-id="${a.id}" data-type="dialogue"><div><strong>${esc(a.title)}</strong><div style="font-size:0.85rem;color:var(--text-light)">${a.facilitator ? 'Ansvarig: '+esc(a.facilitator) : ''}${a.participants ? ' &middot; '+esc(a.participants) : ''}</div></div><div style="text-align:right"><span class="badge badge-${a.status}">${statusLabel(a.status)}</span><div style="font-size:0.8rem;color:var(--text-light);margin-top:0.3rem">${fmtDate(a.created_at)}</div></div></li>`).join('')}</ul>`}
+        </div>
+        <div class="card"><div class="flex-between mb-2"><h2>Mognadsmätning (enheter)</h2>
+        ${isAdmin() ? '<button class="btn btn-primary btn-sm" id="btn-new-survey">+ Ny mätning</button>' : ''}</div>
+        <div id="survey-list"></div>
         </div></div>`;
     app.querySelector('#btn-new-assessment')?.addEventListener('click', () => {
         const m = createModal(`<h2>Ny mognadsdialog</h2><div class="form-group"><label>Titel</label><input id="a-title" type="text" placeholder="T.ex. Mognadsdialog VT 2026" /></div><div class="form-group"><label>Ansvarig</label><input id="a-facilitator" type="text" /></div><div class="form-group"><label>Deltagare</label><textarea id="a-participants" rows="2" placeholder="Namn, separerade med komma"></textarea></div><div style="display:flex;gap:0.5rem;justify-content:flex-end"><button class="btn btn-outline" id="modal-cancel">Avbryt</button><button class="btn btn-primary" id="modal-save">Skapa & starta</button></div>`);
@@ -320,8 +324,57 @@ routes.org = async ({ orgId }) => {
         m.querySelector('#modal-save').addEventListener('click', async () => { const t = m.querySelector('#a-title').value.trim(); if (!t) return alert('Ange titel'); const r = await api('/assessments', { method: 'POST', body: JSON.stringify({ organization_id: orgId, title: t, facilitator: m.querySelector('#a-facilitator').value.trim(), participants: m.querySelector('#a-participants').value.trim() }) }); m.remove(); navigate('dialogue', { assessmentId: r.id }); });
     });
     app.querySelector('#btn-compare')?.addEventListener('click', () => navigate('compare', { orgId }));
-    app.querySelectorAll('.item-list li').forEach(li => li.addEventListener('click', () => navigate('dialogue', { assessmentId: +li.dataset.id })));
+    app.querySelectorAll('.item-list li[data-type="dialogue"]').forEach(li => li.addEventListener('click', () => navigate('dialogue', { assessmentId: +li.dataset.id })));
+    app.querySelector('#btn-new-survey')?.addEventListener('click', () => showNewSurveyDialog(orgId));
+
+    // Load surveys
+    api(`/organizations/${orgId}/surveys`).then(surveys => {
+        const sl = app.querySelector('#survey-list');
+        if (!sl) return;
+        if (surveys.length === 0) { sl.innerHTML = '<div class="empty-state" style="padding:1.5rem">Inga m\u00e4tningar \u00e4nnu.</div>'; return; }
+        sl.innerHTML = `<ul class="item-list">${surveys.map(s => {
+            const profileName = surveyRefData?.profiles?.[s.profile_key]?.name || s.profile_key;
+            return `<li data-id="${s.id}" data-type="survey"><div><strong>${esc(s.title)}</strong><div style="font-size:0.85rem;color:var(--text-light)">${esc(profileName)}${s.respondent_name ? ' \u00b7 '+esc(s.respondent_name) : ''}</div></div><div style="text-align:right"><span class="badge badge-${s.status === 'completed' ? 'finalized' : 'in_progress'}">${s.status === 'completed' ? 'Slutf\u00f6rd' : 'P\u00e5g\u00e5ende'}</span><div style="font-size:0.8rem;color:var(--text-light);margin-top:0.3rem">${fmtDate(s.created_at)}</div></div></li>`;
+        }).join('')}</ul>`;
+        sl.querySelectorAll('li[data-type="survey"]').forEach(li => li.addEventListener('click', () => navigate('survey', { surveyId: +li.dataset.id })));
+    });
 };
+
+let surveyRefData = null;
+async function getSurveyRef() {
+    if (!surveyRefData) surveyRefData = await api('/survey/reference');
+    return surveyRefData;
+}
+
+function showNewSurveyDialog(orgId) {
+    getSurveyRef().then(ref => {
+        const m = createModal(`
+            <h2>Ny mognadsmätning</h2>
+            <div class="form-group"><label>Titel</label><input id="sv-title" type="text" placeholder="T.ex. Infosäk-mätning IT VT2026" /></div>
+            <div class="form-group"><label>Enhetsprofil</label>
+                <select id="sv-profile">${Object.entries(ref.profiles).map(([k, v]) => `<option value="${k}">${v.name} (${v.example_units.join(', ')})</option>`).join('')}</select>
+                <div class="hint">Profilen styr vilka frågor som visas — välj den som bäst matchar enheten.</div>
+            </div>
+            <div class="form-group"><label>Respondent (valfritt)</label><input id="sv-name" type="text" placeholder="Namn på den som svarar" /></div>
+            <div style="display:flex;gap:0.5rem;justify-content:flex-end">
+                <button class="btn btn-outline" id="modal-cancel">Avbryt</button>
+                <button class="btn btn-primary" id="modal-save">Skapa</button>
+            </div>
+        `);
+        m.querySelector('#modal-cancel').addEventListener('click', () => m.remove());
+        m.querySelector('#modal-save').addEventListener('click', async () => {
+            const t = m.querySelector('#sv-title').value.trim();
+            if (!t) return alert('Ange en titel');
+            const res = await api('/surveys', { method: 'POST', body: JSON.stringify({
+                organization_id: orgId, title: t,
+                profile_key: m.querySelector('#sv-profile').value,
+                respondent_name: m.querySelector('#sv-name').value.trim(),
+            })});
+            m.remove();
+            navigate('survey', { surveyId: res.id });
+        });
+    });
+}
 
 // ── VIEW: Dialogue (MCF structured assessment) ─────────────────────
 
@@ -875,6 +928,220 @@ function drawTimeline(assessments, perspOrder) {
     }
     c.innerHTML = h;
 }
+
+// ── VIEW: Survey (answer questions) ─────────────────────────────────
+
+routes.survey = async ({ surveyId }) => {
+    const app = document.getElementById('app');
+    const data = await api(`/surveys/${surveyId}`);
+    const survey = data.survey;
+    const answers = data.answers;
+    const ref = await getSurveyRef();
+    const isCompleted = survey.status === 'completed';
+    const profileName = ref.profiles[survey.profile_key]?.name || survey.profile_key;
+
+    setBreadcrumb([
+        { label: 'Hem', view: 'home' },
+        { label: profileName, view: 'org', params: { orgId: survey.organization_id } },
+    ]);
+
+    // Group answers by section
+    const sections = ref.sections.filter(s => answers.some(a => a.section === s.key));
+    let currentSection = 0;
+
+    function getProgress() {
+        const answered = answers.filter(a => a.selected_level !== null).length;
+        return { answered, total: answers.length, pct: Math.round((answered / answers.length) * 100) };
+    }
+
+    function render() {
+        const sec = sections[currentSection];
+        const secAnswers = answers.filter(a => a.section === sec.key);
+        const progress = getProgress();
+
+        app.innerHTML = `
+        <div class="container">
+            <div class="flex-between mb-2">
+                <div><h2 style="margin:0">${esc(survey.title)}</h2>
+                <span style="font-size:0.85rem;color:var(--text-light)">${esc(profileName)} ${survey.respondent_name ? '\u00b7 '+esc(survey.respondent_name) : ''}</span></div>
+                ${isCompleted ? '<span class="badge badge-finalized">Slutf\u00f6rd</span>' : ''}
+            </div>
+
+            <div class="progress-label">${progress.answered} av ${progress.total} fr\u00e5gor besvarade (${progress.pct}%)</div>
+            <div class="progress-bar"><div class="progress-fill" style="width:${progress.pct}%"></div></div>
+
+            <!-- Section stepper -->
+            <div class="stepper">
+                ${sections.map((s, i) => {
+                    const sAns = answers.filter(a => a.section === s.key);
+                    const sDone = sAns.filter(a => a.selected_level !== null).length;
+                    const sTotal = sAns.length;
+                    return `<div class="stepper-item ${i === currentSection ? 'active' : ''} ${sDone === sTotal && sTotal > 0 ? 'has-notes' : ''}" data-idx="${i}">
+                        ${s.icon || ''} ${s.name}<br>
+                        <span style="font-size:0.75rem">${sDone}/${sTotal}</span>
+                    </div>`;
+                }).join('')}
+            </div>
+
+            <!-- Questions -->
+            <div class="card">
+                <h2>${sec.icon || ''} ${sec.name}</h2>
+                <p style="color:var(--text-light);margin-bottom:1.5rem">${sec.description}</p>
+
+                ${secAnswers.map((a, qi) => `
+                <div class="card" style="background:var(--bg);box-shadow:none;border:1px solid var(--border);margin-bottom:1rem">
+                    <h3 style="font-size:0.95rem;margin-bottom:0.3rem">${qi + 1}. ${esc(a.text)}</h3>
+                    <p style="font-size:0.85rem;color:var(--text-light);margin-bottom:0.8rem">${esc(a.help_text)}</p>
+                    <div class="level-descriptions">
+                        ${ref.levels.map(lvl => {
+                            const isSelected = a.selected_level === lvl.level;
+                            return `
+                            <div class="level-desc-option ${isSelected ? 'selected' : ''}" data-qid="${a.question_id}" data-level="${lvl.level}" ${isCompleted ? '' : 'role="button"'}
+                                 style="border-left:4px solid ${lvl.color};${isSelected ? 'background:'+lvl.color+'15' : ''}">
+                                <div class="level-desc-header">
+                                    <span class="level-badge" style="display:inline-block;width:22px;height:22px;line-height:22px;font-size:0.7rem;background:${lvl.color};color:white;border-radius:50%;text-align:center">${lvl.level}</span>
+                                    <strong style="font-size:0.85rem;margin-left:0.4rem">${lvl.name}</strong>
+                                    ${isSelected ? '<span style="margin-left:auto;color:var(--accent);font-weight:600;font-size:0.8rem">\u2713</span>' : ''}
+                                </div>
+                                <p style="font-size:0.8rem;margin-top:0.3rem;color:var(--text-light)">${lvl.description}</p>
+                            </div>`;
+                        }).join('')}
+                    </div>
+                </div>`).join('')}
+
+                <!-- Nav -->
+                <div class="flex-between mt-2">
+                    <button class="btn btn-outline" id="sv-prev" ${currentSection === 0 ? 'disabled' : ''}>&larr; F\u00f6reg\u00e5ende</button>
+                    <span style="color:var(--text-light);font-size:0.9rem">${currentSection + 1} / ${sections.length}</span>
+                    ${currentSection < sections.length - 1
+                        ? '<button class="btn btn-primary" id="sv-next">N\u00e4sta &rarr;</button>'
+                        : (!isCompleted && progress.pct === 100
+                            ? '<button class="btn btn-accent" id="sv-complete">Slutf\u00f6r m\u00e4tning</button>'
+                            : (isCompleted
+                                ? '<button class="btn btn-primary" id="sv-results">Visa resultat</button>'
+                                : '<span style="font-size:0.85rem;color:var(--text-light)">Besvara alla fr\u00e5gor f\u00f6r att slutf\u00f6ra</span>'
+                            )
+                        )
+                    }
+                </div>
+            </div>
+        </div>`;
+
+        // Events
+        app.querySelectorAll('.stepper-item').forEach(el => el.addEventListener('click', () => { currentSection = +el.dataset.idx; render(); }));
+        app.querySelector('#sv-prev')?.addEventListener('click', () => { if (currentSection > 0) { currentSection--; render(); } });
+        app.querySelector('#sv-next')?.addEventListener('click', () => { if (currentSection < sections.length - 1) { currentSection++; render(); } });
+        app.querySelector('#sv-complete')?.addEventListener('click', async () => {
+            if (!confirm('Slutf\u00f6r m\u00e4tningen? Den kan inte \u00e4ndras efter\u00e5t.')) return;
+            await api(`/surveys/${surveyId}/complete`, { method: 'POST' });
+            navigate('surveyResults', { surveyId });
+        });
+        app.querySelector('#sv-results')?.addEventListener('click', () => navigate('surveyResults', { surveyId }));
+
+        if (!isCompleted) {
+            app.querySelectorAll('.level-desc-option[role="button"]').forEach(el => {
+                el.addEventListener('click', async () => {
+                    const qid = el.dataset.qid, lvl = +el.dataset.level;
+                    const ans = answers.find(a => a.question_id === qid);
+                    const newLvl = (ans && ans.selected_level === lvl) ? null : lvl;
+                    if (ans) ans.selected_level = newLvl;
+                    await api(`/surveys/${surveyId}/answers/${qid}`, {
+                        method: 'PUT', body: JSON.stringify({ selected_level: newLvl, comment: ans?.comment || '' }),
+                    });
+                    render();
+                });
+            });
+        }
+    }
+    render();
+};
+
+// ── VIEW: Survey Results ───────────────────────────────────────────
+
+routes.surveyResults = async ({ surveyId }) => {
+    const app = document.getElementById('app');
+    const data = await api(`/surveys/${surveyId}`);
+    const survey = data.survey;
+    const answers = data.answers;
+    const ref = await getSurveyRef();
+    const profileName = ref.profiles[survey.profile_key]?.name || survey.profile_key;
+
+    setBreadcrumb([
+        { label: 'Hem', view: 'home' },
+        { label: profileName, view: 'org', params: { orgId: survey.organization_id } },
+    ]);
+
+    // Calculate averages per section
+    const sections = ref.sections.filter(s => answers.some(a => a.section === s.key));
+    const sectionResults = sections.map(s => {
+        const sAns = answers.filter(a => a.section === s.key && a.selected_level !== null);
+        const avg = sAns.length > 0 ? sAns.reduce((sum, a) => sum + a.selected_level, 0) / sAns.length : 0;
+        return { ...s, avg: Math.round(avg * 10) / 10, count: sAns.length };
+    });
+    const totalAvg = answers.filter(a => a.selected_level).length > 0
+        ? Math.round(answers.filter(a => a.selected_level).reduce((s, a) => s + a.selected_level, 0) / answers.filter(a => a.selected_level).length * 10) / 10
+        : 0;
+
+    app.innerHTML = `
+    <div class="container-wide">
+        <div class="flex-between mb-2">
+            <div><h2>${esc(survey.title)} \u2013 Resultat</h2>
+            <span style="font-size:0.85rem;color:var(--text-light)">${esc(profileName)} ${survey.respondent_name ? '\u00b7 '+esc(survey.respondent_name) : ''} \u00b7 ${fmtDate(survey.created_at)}</span></div>
+            <button class="btn btn-outline btn-sm" id="sv-back">Tillbaka</button>
+        </div>
+
+        <!-- Overall score -->
+        <div class="card" style="text-align:center">
+            <h2>Samlat resultat</h2>
+            <div style="font-size:3rem;font-weight:700;color:${ref.levels[Math.min(Math.round(totalAvg) - 1, 4)]?.color || '#999'}">${totalAvg}</div>
+            <div style="color:var(--text-light)">av 5.0</div>
+        </div>
+
+        <!-- Bar chart per section -->
+        <div class="card">
+            <h2>Resultat per omr\u00e5de</h2>
+            ${sectionResults.map(s => {
+                const pct = (s.avg / 5) * 100;
+                const color = ref.levels[Math.min(Math.round(s.avg) - 1, 4)]?.color || '#bdc3c7';
+                return `
+                <div style="margin-bottom:1rem">
+                    <div class="flex-between" style="margin-bottom:0.3rem">
+                        <span style="font-weight:600;font-size:0.9rem">${s.icon || ''} ${s.name}</span>
+                        <span style="font-weight:700;color:${color}">${s.avg}</span>
+                    </div>
+                    <div style="background:var(--border);border-radius:4px;height:24px;overflow:hidden">
+                        <div style="background:${color};height:100%;width:${pct}%;border-radius:4px;transition:width 0.3s"></div>
+                    </div>
+                </div>`;
+            }).join('')}
+        </div>
+
+        <!-- Detail table -->
+        <div class="card">
+            <h2>Alla svar</h2>
+            <table style="width:100%;border-collapse:collapse">
+                <thead><tr style="border-bottom:2px solid var(--border)">
+                    <th style="text-align:left;padding:0.5rem">Fr\u00e5ga</th>
+                    <th style="text-align:center;padding:0.5rem;width:80px">Niv\u00e5</th>
+                </tr></thead>
+                <tbody>
+                ${answers.map(a => {
+                    const lvl = a.selected_level;
+                    const color = lvl ? ref.levels[lvl - 1]?.color : '#bdc3c7';
+                    return `<tr style="border-bottom:1px solid var(--border)">
+                        <td style="padding:0.5rem;font-size:0.9rem">${esc(a.text)}</td>
+                        <td style="padding:0.5rem;text-align:center">
+                            <span class="level-badge" style="display:inline-block;width:24px;height:24px;line-height:24px;font-size:0.75rem;background:${color};color:white;border-radius:50%;text-align:center">${lvl || '\u2013'}</span>
+                        </td>
+                    </tr>`;
+                }).join('')}
+                </tbody>
+            </table>
+        </div>
+    </div>`;
+
+    app.querySelector('#sv-back')?.addEventListener('click', () => navigate('org', { orgId: survey.organization_id }));
+};
 
 // ── VIEW: Settings ─────────────────────────────────────────────────
 

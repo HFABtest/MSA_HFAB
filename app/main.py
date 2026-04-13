@@ -342,6 +342,82 @@ async def export_assessment_pdf(assessment_id: int, request: Request):
     )
 
 
+# ── Surveys (unit-level maturity measurement) ───────────────────────
+
+@app.get("/api/survey/reference")
+async def get_survey_reference():
+    from .survey_data import SURVEY_SECTIONS, SURVEY_LEVELS, UNIT_PROFILES, SURVEY_QUESTIONS
+    return {
+        "sections": SURVEY_SECTIONS,
+        "levels": SURVEY_LEVELS,
+        "profiles": {k: {"name": v["name"], "description": v["description"], "example_units": v["example_units"]} for k, v in UNIT_PROFILES.items()},
+        "total_questions": len(SURVEY_QUESTIONS),
+    }
+
+
+@app.post("/api/surveys", status_code=201)
+async def create_survey(request: Request):
+    require_admin(request)
+    data = await request.json()
+    org = await db.get_organization(data["organization_id"])
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    return await db.create_survey(
+        data["organization_id"], data["title"], data["profile_key"], data.get("respondent_name", ""),
+    )
+
+
+@app.get("/api/organizations/{org_id}/surveys")
+async def list_surveys(org_id: int, request: Request):
+    require_auth(request)
+    return await db.list_surveys(org_id)
+
+
+@app.get("/api/surveys/{survey_id}")
+async def get_survey(survey_id: int, request: Request):
+    require_auth(request)
+    survey = await db.get_survey(survey_id)
+    if survey is None:
+        raise HTTPException(status_code=404, detail="Survey not found")
+    answers = await db.get_survey_answers(survey_id)
+    # Enrich answers with question data
+    from .survey_data import SURVEY_QUESTIONS
+    q_map = {q["id"]: q for q in SURVEY_QUESTIONS}
+    enriched = []
+    for a in answers:
+        q = q_map.get(a["question_id"], {})
+        enriched.append({
+            **a,
+            "section": q.get("section", ""),
+            "text": q.get("text", ""),
+            "help_text": q.get("help_text", ""),
+        })
+    return {"survey": survey, "answers": enriched}
+
+
+@app.put("/api/surveys/{survey_id}/answers/{question_id}")
+async def update_survey_answer(survey_id: int, question_id: str, request: Request):
+    require_auth(request)
+    survey = await db.get_survey(survey_id)
+    if survey is None:
+        raise HTTPException(status_code=404, detail="Survey not found")
+    if survey["status"] == "completed":
+        raise HTTPException(status_code=400, detail="Survey is completed")
+    data = await request.json()
+    await db.update_survey_answer(survey_id, question_id, data.get("selected_level"), data.get("comment", ""))
+    return {"ok": True}
+
+
+@app.post("/api/surveys/{survey_id}/complete")
+async def complete_survey(survey_id: int, request: Request):
+    require_auth(request)
+    survey = await db.get_survey(survey_id)
+    if survey is None:
+        raise HTTPException(status_code=404, detail="Survey not found")
+    await db.complete_survey(survey_id)
+    return {"ok": True}
+
+
 # ── Settings (read: public, write: admin) ───────────────────────────
 
 THEME_DEFAULTS = {
