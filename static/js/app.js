@@ -42,12 +42,13 @@ function applyTheme(s) {
     r.setProperty('--primary', s.primary || '#E27629');
     r.setProperty('--primary-light', s.primary_light || '#F09A5B');
     r.setProperty('--accent', s.accent || '#2E7D32');
+    r.setProperty('--danger', s.danger || '#e74c3c');
     r.setProperty('--text', s.text || '#2c3e50');
     r.setProperty('--text-light', s.text_light || '#7f8c8d');
     r.setProperty('--bg', s.bg || '#f5f7fa');
     // Header title
     const h1 = document.querySelector('.app-header h1');
-    if (h1) h1.textContent = s.app_title || 'Mognadsdialog';
+    if (h1) h1.textContent = s.app_title || 'Mognadsportalen';
     // Logo
     const logoEl = document.getElementById('header-logo');
     if (logoEl) {
@@ -1240,65 +1241,186 @@ routes.surveyResults = async ({ surveyId }) => {
         ? Math.round(answers.filter(a => a.selected_level).reduce((s, a) => s + a.selected_level, 0) / answers.filter(a => a.selected_level).length * 10) / 10
         : 0;
 
+    // Find weakest sections for guidance
+    const sortedSections = [...sectionResults].sort((a, b) => a.avg - b.avg);
+    const weakSections = sortedSections.filter(s => s.avg > 0 && s.avg < 4).slice(0, 4);
+
+    // Generate improvement suggestions per weak section
+    const SECTION_GUIDANCE = {
+        awareness: [
+            "Genomf\u00f6r regelbundna utbildningar i informationss\u00e4kerhet f\u00f6r alla medarbetare.",
+            "\u00d6va p\u00e5 att k\u00e4nna igen n\u00e4tfiske genom simulerade phishing-tester.",
+            "S\u00e4kerst\u00e4ll att ledningen aktivt kommunicerar varf\u00f6r informationss\u00e4kerhet \u00e4r viktigt.",
+        ],
+        information_handling: [
+            "Genomf\u00f6r en informationsinventering \u2013 kartl\u00e4gg vilken information som finns och var.",
+            "Inf\u00f6r informationsklassning s\u00e5 att r\u00e4tt skydds\u00e5tg\u00e4rder kan v\u00e4ljas.",
+            "Skapa tydliga rutiner f\u00f6r hur dokument sparas, delas och gallras.",
+        ],
+        incident: [
+            "S\u00e4kerst\u00e4ll att alla vet hur och var man rapporterar incidenter.",
+            "Dokumentera en tydlig incidenthanteringsprocess med eskaleringsv\u00e4gar.",
+            "Genomf\u00f6r scenario\u00f6vningar f\u00f6r att testa beredskapen.",
+        ],
+        access: [
+            "Inf\u00f6r regelbunden granskning av beh\u00f6righeter \u2013 har alla r\u00e4tt \u00e5tkomst?",
+            "S\u00e4kerst\u00e4ll att MFA anv\u00e4nds f\u00f6r kritiska system.",
+            "Skapa rutiner f\u00f6r att ta bort beh\u00f6righeter n\u00e4r n\u00e5gon slutar eller byter roll.",
+        ],
+        suppliers: [
+            "Kartl\u00e4gg vilka leverant\u00f6rer som hanterar er information.",
+            "St\u00e4ll krav p\u00e5 informationss\u00e4kerhet i avtal med leverant\u00f6rer.",
+            "F\u00f6lj upp att leverant\u00f6rer efterlever st\u00e4llda s\u00e4kerhetskrav.",
+        ],
+        continuity: [
+            "Upprätta en kontinuitetsplan f\u00f6r de mest kritiska systemen.",
+            "Testa att backup fungerar genom att \u00f6va \u00e5terst\u00e4llning.",
+            "Identifiera och dokumentera vilka resurser verksamheten \u00e4r beroende av.",
+        ],
+        physical: [
+            "Se \u00f6ver att tekniska utrymmen har r\u00e4tt \u00e5tkomstskydd.",
+            "Inf\u00f6r rutiner f\u00f6r nyckelhantering och passerkort.",
+            "S\u00e4kerst\u00e4ll clean desk \u2013 k\u00e4nsliga dokument ska inte ligga framme.",
+        ],
+        gdpr: [
+            "Uppr\u00e4tta en registerf\u00f6rteckning \u00f6ver alla personuppgiftsbehandlingar.",
+            "Utbilda medarbetare i vad personuppgifter \u00e4r och hur de ska hanteras.",
+            "S\u00e4kerst\u00e4ll att alla vet hur en personuppgiftsincident ska rapporteras.",
+        ],
+    };
+
     app.innerHTML = `
     <div class="container-wide">
         <div class="flex-between mb-2">
             <div><h2>${esc(survey.title)} \u2013 Resultat</h2>
-            <span style="font-size:0.85rem;color:var(--text-light)">${esc(profileName)}  \u00b7 ${fmtDate(survey.created_at)}</span></div>
-            <button class="btn btn-outline btn-sm" id="sv-back">Tillbaka</button>
+            <span style="font-size:0.85rem;color:var(--text-light)">${esc(profileName)} \u00b7 ${fmtDate(survey.created_at)}</span></div>
+            <div class="btn-group">
+                <button class="btn btn-outline btn-sm" id="sv-print" onclick="window.print()">Skriv ut</button>
+                <button class="btn btn-outline btn-sm" id="sv-back">Tillbaka</button>
+            </div>
         </div>
 
-        <!-- Overall score -->
-        <div class="card" style="text-align:center">
-            <h2>Samlat resultat</h2>
-            <div style="font-size:3rem;font-weight:700;color:${ref.levels[Math.min(Math.round(totalAvg) - 1, 4)]?.color || '#999'}">${totalAvg}</div>
-            <div style="color:var(--text-light)">av 5.0</div>
+        <!-- Overall score + bar chart -->
+        <div class="charts-grid">
+            <div class="card" style="text-align:center">
+                <h2>Samlat resultat</h2>
+                <div style="font-size:3.5rem;font-weight:700;color:${ref.levels[Math.min(Math.round(totalAvg) - 1, 4)]?.color || '#999'}">${totalAvg}</div>
+                <div style="color:var(--text-light);margin-bottom:1rem">av 5.0</div>
+                <div style="font-size:0.9rem;color:var(--text-light)">${ref.levels[Math.min(Math.round(totalAvg) - 1, 4)]?.name || ''}</div>
+
+                <!-- Radar chart -->
+                <div class="chart-container" style="margin-top:1rem"><canvas id="survey-radar" width="350" height="350"></canvas></div>
+            </div>
+            <div class="card">
+                <h2>Resultat per omr\u00e5de</h2>
+                ${sectionResults.map(s => {
+                    const pct = (s.avg / 5) * 100;
+                    const color = ref.levels[Math.min(Math.round(s.avg) - 1, 4)]?.color || '#bdc3c7';
+                    const levelName = ref.levels[Math.min(Math.round(s.avg) - 1, 4)]?.name || '';
+                    return `
+                    <div style="margin-bottom:1rem">
+                        <div class="flex-between" style="margin-bottom:0.3rem">
+                            <span style="font-weight:600;font-size:0.9rem">${s.icon || ''} ${s.name}</span>
+                            <span style="font-weight:700;color:${color}">${s.avg} <span style="font-weight:400;font-size:0.8rem;color:var(--text-light)">${levelName}</span></span>
+                        </div>
+                        <div style="background:var(--border);border-radius:4px;height:24px;overflow:hidden">
+                            <div style="background:${color};height:100%;width:${pct}%;border-radius:4px;transition:width 0.3s"></div>
+                        </div>
+                    </div>`;
+                }).join('')}
+            </div>
         </div>
 
-        <!-- Bar chart per section -->
+        <!-- Guidance for improvement -->
+        ${weakSections.length > 0 ? `
         <div class="card">
-            <h2>Resultat per omr\u00e5de</h2>
-            ${sectionResults.map(s => {
-                const pct = (s.avg / 5) * 100;
+            <h2>F\u00f6rslag p\u00e5 fortsatt arbete</h2>
+            <p style="color:var(--text-light);font-size:0.9rem;margin-bottom:1.5rem">
+                Baserat p\u00e5 resultatet \u2013 omr\u00e5den med st\u00f6rst f\u00f6rb\u00e4ttringspotential.
+                F\u00f6rslagen \u00e4r riktningsgivande, inte en checklista.
+            </p>
+            ${weakSections.map(s => {
                 const color = ref.levels[Math.min(Math.round(s.avg) - 1, 4)]?.color || '#bdc3c7';
+                const suggestions = SECTION_GUIDANCE[s.key] || [];
                 return `
-                <div style="margin-bottom:1rem">
-                    <div class="flex-between" style="margin-bottom:0.3rem">
-                        <span style="font-weight:600;font-size:0.9rem">${s.icon || ''} ${s.name}</span>
-                        <span style="font-weight:700;color:${color}">${s.avg}</span>
+                <div style="margin-bottom:1.5rem">
+                    <div class="flex-between mb-1">
+                        <h3 style="margin:0">${s.icon || ''} ${s.name}</h3>
+                        <span style="font-weight:700;color:${color}">${s.avg} av 5</span>
                     </div>
-                    <div style="background:var(--border);border-radius:4px;height:24px;overflow:hidden">
-                        <div style="background:${color};height:100%;width:${pct}%;border-radius:4px;transition:width 0.3s"></div>
+                    <div class="guidance-panel" style="margin-top:0">
+                        <ul>${suggestions.map(sg => `<li>${sg}</li>`).join('')}</ul>
                     </div>
                 </div>`;
             }).join('')}
-        </div>
+        </div>` : `
+        <div class="card" style="text-align:center;padding:2rem">
+            <div style="font-size:2rem;margin-bottom:0.5rem">\u2705</div>
+            <h2>Bra jobbat!</h2>
+            <p style="color:var(--text-light)">Alla omr\u00e5den ligger p\u00e5 niv\u00e5 4 eller h\u00f6gre. Forts\u00e4tt det systematiska arbetet.</p>
+        </div>`}
 
-        <!-- Detail table -->
+        <!-- Detail per section -->
         <div class="card">
-            <h2>Alla svar</h2>
-            <table style="width:100%;border-collapse:collapse">
-                <thead><tr style="border-bottom:2px solid var(--border)">
-                    <th style="text-align:left;padding:0.5rem">Fr\u00e5ga</th>
-                    <th style="text-align:center;padding:0.5rem;width:80px">Niv\u00e5</th>
-                </tr></thead>
-                <tbody>
-                ${answers.map(a => {
-                    const lvl = a.selected_level;
-                    const color = lvl ? ref.levels[lvl - 1]?.color : '#bdc3c7';
-                    return `<tr style="border-bottom:1px solid var(--border)">
-                        <td style="padding:0.5rem;font-size:0.9rem">${esc(a.text)}</td>
-                        <td style="padding:0.5rem;text-align:center">
-                            <span class="level-badge" style="display:inline-block;width:24px;height:24px;line-height:24px;font-size:0.75rem;background:${color};color:white;border-radius:50%;text-align:center">${lvl || '\u2013'}</span>
-                        </td>
-                    </tr>`;
-                }).join('')}
-                </tbody>
-            </table>
+            <h2>Detaljerade svar per omr\u00e5de</h2>
+            ${sections.map(s => {
+                const sAns = answers.filter(a => a.section === s.key);
+                return `
+                <div style="margin-bottom:1.5rem">
+                    <h3 style="border-bottom:1px solid var(--border);padding-bottom:0.5rem">${s.icon || ''} ${s.name}</h3>
+                    <table style="width:100%;border-collapse:collapse">
+                    ${sAns.map(a => {
+                        const lvl = a.selected_level;
+                        const color = lvl ? ref.levels[lvl - 1]?.color : '#bdc3c7';
+                        const levelName = lvl ? ref.levels[lvl - 1]?.name : 'Ej besvarad';
+                        return `<tr style="border-bottom:1px solid var(--border)">
+                            <td style="padding:0.5rem;font-size:0.9rem">${esc(a.text)}</td>
+                            <td style="padding:0.5rem;text-align:right;white-space:nowrap">
+                                <span class="level-badge" style="display:inline-block;width:24px;height:24px;line-height:24px;font-size:0.75rem;background:${color};color:white;border-radius:50%;text-align:center">${lvl || '\u2013'}</span>
+                                <span style="font-size:0.8rem;color:var(--text-light);margin-left:0.3rem">${levelName}</span>
+                            </td>
+                        </tr>`;
+                    }).join('')}
+                    </table>
+                </div>`;
+            }).join('')}
         </div>
     </div>`;
 
     app.querySelector('#sv-back')?.addEventListener('click', () => navigate('org', { orgId: survey.organization_id }));
+
+    // Draw survey radar chart
+    const radarCanvas = document.getElementById('survey-radar');
+    if (radarCanvas && sectionResults.length >= 3) {
+        const ctx = radarCanvas.getContext('2d');
+        const W = radarCanvas.width, H = radarCanvas.height;
+        const cx = W/2, cy = H/2, maxR = Math.min(cx,cy) - 50;
+        const n = sectionResults.length, levels = 5;
+        ctx.clearRect(0, 0, W, H);
+        // Grid
+        for (let l = 1; l <= levels; l++) {
+            const r = (l/levels)*maxR;
+            ctx.beginPath();
+            for (let i = 0; i <= n; i++) { const a = (Math.PI*2*i)/n - Math.PI/2; const x = cx+r*Math.cos(a), y = cy+r*Math.sin(a); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); }
+            ctx.strokeStyle = '#dce1e8'; ctx.lineWidth = 1; ctx.stroke();
+        }
+        // Spokes + labels
+        for (let i = 0; i < n; i++) {
+            const a = (Math.PI*2*i)/n - Math.PI/2;
+            ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx+maxR*Math.cos(a), cy+maxR*Math.sin(a)); ctx.strokeStyle='#dce1e8'; ctx.stroke();
+            const lr = maxR+20, lx = cx+lr*Math.cos(a), ly = cy+lr*Math.sin(a);
+            ctx.fillStyle='#2c3e50'; ctx.font='11px Open Sans, sans-serif';
+            ctx.textAlign=Math.cos(a)<-0.1?'right':Math.cos(a)>0.1?'left':'center';
+            ctx.textBaseline=Math.sin(a)<-0.1?'bottom':Math.sin(a)>0.1?'top':'middle';
+            ctx.fillText(sectionResults[i].name, lx, ly);
+        }
+        // Data polygon
+        ctx.beginPath();
+        for (let i = 0; i <= n; i++) { const idx=i%n, a=(Math.PI*2*idx)/n-Math.PI/2, r=(sectionResults[idx].avg/levels)*maxR; i===0?ctx.moveTo(cx+r*Math.cos(a),cy+r*Math.sin(a)):ctx.lineTo(cx+r*Math.cos(a),cy+r*Math.sin(a)); }
+        ctx.fillStyle='rgba(226,118,41,0.2)'; ctx.fill(); ctx.strokeStyle='#E27629'; ctx.lineWidth=2.5; ctx.stroke();
+        // Dots
+        for (let i = 0; i < n; i++) { const a=(Math.PI*2*i)/n-Math.PI/2, r=(sectionResults[i].avg/levels)*maxR; ctx.beginPath(); ctx.arc(cx+r*Math.cos(a),cy+r*Math.sin(a),4,0,Math.PI*2); ctx.fillStyle=sectionResults[i].avg?'#E27629':'#bdc3c7'; ctx.fill(); ctx.strokeStyle='white'; ctx.lineWidth=1.5; ctx.stroke(); }
+    }
 };
 
 // ── VIEW: Settings ─────────────────────────────────────────────────
@@ -1496,12 +1618,13 @@ routes.settings = async () => {
     setBreadcrumb([{ label: 'Hem', view: 'home' }]);
 
     const colorFields = [
-        { key: 'primary', label: 'Prim\u00e4rf\u00e4rg (header, knappar)', default: '#E27629' },
-        { key: 'primary_light', label: 'Prim\u00e4rf\u00e4rg ljus (hover, accenter)', default: '#F09A5B' },
-        { key: 'accent', label: 'Accentf\u00e4rg (spara, framg\u00e5ng)', default: '#2E7D32' },
-        { key: 'bg', label: 'Bakgrundsf\u00e4rg', default: '#f5f7fa' },
-        { key: 'text', label: 'Textf\u00e4rg', default: '#2c3e50' },
-        { key: 'text_light', label: 'Textf\u00e4rg ljus', default: '#7f8c8d' },
+        { key: 'primary', label: 'Huvudf\u00e4rg \u2013 header, prim\u00e4ra knappar', default: '#E27629' },
+        { key: 'primary_light', label: 'Huvudf\u00e4rg ljus \u2013 hover p\u00e5 knappar', default: '#F09A5B' },
+        { key: 'accent', label: 'Positivf\u00e4rg \u2013 slutf\u00f6r, spara, framg\u00e5ng', default: '#2E7D32' },
+        { key: 'danger', label: 'Varningsf\u00e4rg \u2013 ta bort, varningar', default: '#e74c3c' },
+        { key: 'bg', label: 'Sidbakgrund', default: '#f5f7fa' },
+        { key: 'text', label: 'Br\u00f6dtext \u2013 rubriker och inneh\u00e5ll', default: '#2c3e50' },
+        { key: 'text_light', label: 'Sekund\u00e4r text \u2013 hj\u00e4lptexter och datum', default: '#7f8c8d' },
     ];
 
     app.innerHTML = `
@@ -1520,7 +1643,7 @@ routes.settings = async () => {
 
             <div class="form-group">
                 <label>Applikationsnamn</label>
-                <input id="s-title" type="text" value="${esc(s.app_title || 'Mognadsdialog')}" />
+                <input id="s-title" type="text" value="${esc(s.app_title || 'Mognadsportalen')}" />
             </div>
 
             <h3 style="margin-top:1.5rem">Logotyp</h3>

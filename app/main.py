@@ -536,8 +536,8 @@ async def delete_survey(survey_id: int, request: Request):
 
 THEME_DEFAULTS = {
     "primary": "#E27629", "primary_light": "#F09A5B", "accent": "#2E7D32",
-    "text": "#2c3e50", "text_light": "#7f8c8d", "bg": "#f5f7fa",
-    "app_title": "Mognadsdialog",
+    "danger": "#e74c3c", "text": "#2c3e50", "text_light": "#7f8c8d",
+    "bg": "#f5f7fa", "app_title": "Mognadsportalen",
 }
 
 @app.get("/api/settings")
