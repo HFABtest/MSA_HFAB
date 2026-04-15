@@ -423,7 +423,7 @@ routes.org = async ({ orgId }) => {
         const fin = assessments.filter(a => a.status === 'finalized');
         app.innerHTML = `<div class="container">
             <div class="card"><div class="flex-between mb-2"><div><h2>Mognadsdialog ${esc(org.name)}</h2></div>
-            <div class="btn-group">${isAdmin() && fin.length >= 2 ? `<button class="btn btn-outline btn-sm" id="btn-compare">J\u00e4mf\u00f6r \u00f6ver tid</button>` : ''}${isAdmin() ? '<button class="btn btn-primary" id="btn-new-assessment">+ Ny dialog</button>' : ''}</div></div></div>
+            <div class="btn-group"><button class="btn btn-outline btn-sm" onclick="navigate('dialogueHome')">&larr; Tillbaka</button>${isAdmin() && fin.length >= 2 ? `<button class="btn btn-outline btn-sm" id="btn-compare">J\u00e4mf\u00f6r \u00f6ver tid</button>` : ''}${isAdmin() ? '<button class="btn btn-primary" id="btn-new-assessment">+ Ny dialog</button>' : ''}</div></div></div>
             <div class="card"><h2>Dialoger</h2>
             ${assessments.length === 0 ? '<div class="empty-state">Inga dialoger f\u00f6r detta \u00e5r \u00e4nnu.</div>'
             : `<ul class="item-list">${assessments.map(a => `<li data-id="${a.id}" data-type="dialogue"><div><strong>${esc(a.title)}</strong><div style="font-size:0.85rem;color:var(--text-light)">${a.facilitator ? 'Ansvarig: '+esc(a.facilitator) : ''}${a.participants ? ' &middot; '+esc(a.participants) : ''}</div></div><div style="text-align:right"><span class="badge badge-${a.status}">${statusLabel(a.status)}</span><div style="font-size:0.8rem;color:var(--text-light);margin-top:0.3rem">${fmtDate(a.created_at)}</div></div></li>`).join('')}</ul>`}
@@ -432,10 +432,12 @@ routes.org = async ({ orgId }) => {
         // ── SURVEY UNIT VIEW ──
         setBreadcrumb([{ label: 'Hem', view: 'home' }, { label: 'Mognadsmätning', view: 'surveyHome' }]);
         app.innerHTML = `<div class="container">
-            <div class="card"><div class="flex-between mb-2"><div><h2>${esc(org.name)}</h2><p style="color:var(--text-light);font-size:0.9rem">${esc(org.description)}</p></div>
+            <div class="card"><div class="flex-between mb-2"><div style="display:flex;align-items:center;gap:0.5rem">
+                <h2 style="margin:0">${esc(org.name)}</h2>
+                <button id="btn-edit-org" title="Redigera enhet" style="background:none;border:none;cursor:pointer;font-size:1.1rem;opacity:0.5;padding:0.2rem">&#9998;</button>
+            </div>
             <div class="btn-group">
-                <button class="btn btn-outline btn-sm" id="btn-rename-org">\u00c4ndra namn</button>
-                ${isAdmin() ? '<button class="btn btn-outline btn-sm" id="btn-delete-org" style="color:var(--danger);border-color:var(--danger)">Ta bort enhet</button>' : ''}
+                <button class="btn btn-outline btn-sm" onclick="navigate('surveyHome')">&larr; Tillbaka</button>
                 ${isAdmin() ? '<button class="btn btn-primary btn-sm" id="btn-new-survey">+ Ny mätning</button>' : ''}
             </div></div></div>
             <div class="card"><h2>Mätningar</h2>
@@ -453,25 +455,33 @@ routes.org = async ({ orgId }) => {
         app.querySelectorAll('.item-list li[data-type="dialogue"]').forEach(li => li.addEventListener('click', () => navigate('dialogue', { assessmentId: +li.dataset.id })));
     } else {
         // Survey unit events
-        app.querySelector('#btn-rename-org')?.addEventListener('click', () => {
-            const m = createModal(`<h2>\u00c4ndra namn</h2><div class="form-group"><label>Nytt namn</label><input id="rn-name" type="text" value="${esc(org.name)}" /></div><div style="display:flex;gap:0.5rem;justify-content:flex-end"><button class="btn btn-outline" id="modal-cancel">Avbryt</button><button class="btn btn-primary" id="modal-save">Spara</button></div>`);
+        app.querySelector('#btn-edit-org')?.addEventListener('click', () => {
+            const m = createModal(`
+                <h2>Redigera enhet</h2>
+                <div class="form-group"><label>Namn</label><input id="eo-name" type="text" value="${esc(org.name)}" /></div>
+                <div class="form-group"><label>Beskrivning</label><textarea id="eo-desc" rows="2">${esc(org.description)}</textarea></div>
+                <div style="display:flex;justify-content:space-between;margin-top:1.5rem">
+                    ${isAdmin() ? '<button class="btn btn-outline btn-sm" id="eo-delete" style="color:var(--danger);border-color:var(--danger)">Ta bort enhet</button>' : '<span></span>'}
+                    <div style="display:flex;gap:0.5rem">
+                        <button class="btn btn-outline" id="modal-cancel">Avbryt</button>
+                        <button class="btn btn-primary" id="modal-save">Spara</button>
+                    </div>
+                </div>
+            `);
             m.querySelector('#modal-cancel').addEventListener('click', () => m.remove());
             m.querySelector('#modal-save').addEventListener('click', async () => {
-                const name = m.querySelector('#rn-name').value.trim();
+                const name = m.querySelector('#eo-name').value.trim();
                 if (!name) return alert('Ange ett namn');
-                // Update org name — reuse organizations endpoint (we need a PATCH)
-                // For now use a simple approach: we don't have an org update endpoint, so use settings trick
-                // Actually, let's just add inline — organizations don't have update yet, so call PUT on survey unit if it exists
-                // Simplest: just update via a direct call
-                await fetch(API + `/organizations/${orgId}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({name}) });
+                await api(`/organizations/${orgId}`, { method: 'PUT', body: JSON.stringify({ name, description: m.querySelector('#eo-desc').value.trim() }) });
                 m.remove();
                 navigate('org', { orgId });
             });
-        });
-        app.querySelector('#btn-delete-org')?.addEventListener('click', async () => {
-            if (!confirm('Ta bort enheten och alla dess m\u00e4tningar? Detta kan inte \u00e5ngras.')) return;
-            await api(`/organizations/${orgId}`, { method: 'DELETE' });
-            navigate('surveyHome');
+            m.querySelector('#eo-delete')?.addEventListener('click', async () => {
+                if (!confirm('Ta bort enheten och alla dess m\u00e4tningar? Detta kan inte \u00e5ngras.')) return;
+                await api(`/organizations/${orgId}`, { method: 'DELETE' });
+                m.remove();
+                navigate('surveyHome');
+            });
         });
         app.querySelector('#btn-new-survey')?.addEventListener('click', () => showNewSurveyDialog(orgId));
         // Load surveys
@@ -1122,8 +1132,11 @@ routes.survey = async ({ surveyId }) => {
         <div class="container">
             <div class="flex-between mb-2">
                 <div><h2 style="margin:0">${esc(survey.title)}</h2>
-                <span style="font-size:0.85rem;color:var(--text-light)">${esc(profileName)} </span></div>
-                ${isCompleted ? '<span class="badge badge-finalized">Slutf\u00f6rd</span>' : ''}
+                <span style="font-size:0.85rem;color:var(--text-light)">${esc(profileName)}</span></div>
+                <div class="btn-group">
+                    ${isCompleted ? '<span class="badge badge-finalized">Slutf\u00f6rd</span>' : ''}
+                    <button class="btn btn-outline btn-sm" onclick="navigate('org', {orgId:${survey.organization_id}})">&larr; Tillbaka</button>
+                </div>
             </div>
 
             <div class="progress-label">${progress.answered} av ${progress.total} fr\u00e5gor besvarade (${progress.pct}%)</div>
